@@ -31,11 +31,29 @@ st.markdown("""
         cursor: pointer;
     }
     .footer {
-        background-color: #f0f2f6;
-        padding: 1rem;
+        background-color: #e8f4fd;
+        border: 2px solid #1f77b4;
+        padding: 1.5rem;
         border-radius: 10px;
         margin-top: 2rem;
         text-align: center;
+        color: #333;
+    }
+    .footer h4 {
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+    }
+    .footer p {
+        margin: 0.3rem 0;
+        color: #555;
+    }
+    .footer small {
+        color: #666;
+        font-style: italic;
+    }
+    .footer hr {
+        border-color: #1f77b4;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -62,28 +80,15 @@ if not openai_api_key:
     st.info("💡 API 키 발급: https://platform.openai.com/api-keys")
     st.stop()
 
-# 빠른 질문 템플릿
+# 빠른 질문 템플릿 (수정됨 - 처리기간, 수수료, 민원접수 관련 삭제)
 st.sidebar.title("🚀 빠른 질문")
 quick_questions = {
-    "📋 처리기간 관련": [
-        "여권 발급 처리기간이 얼마나 걸리나요?",
-        "정보공개 청구 처리기간은?",
-        "주민등록 등초본 발급은 얼마나 걸리나요?"
-    ],
     "📄 구비서류 관련": [
         "여권 재발급 시 필요한 서류는?",
         "정보공개 청구 시 필요한 서류는?",
-        "인감증명서 발급에 필요한 서류는?"
-    ],
-    "💰 수수료 관련": [
-        "여권 발급 수수료는 얼마인가요?",
-        "각종 증명서 발급 비용이 궁금해요",
-        "취득세 신고 관련 수수료는?"
-    ],
-    "🏢 민원 접수 관련": [
-        "민원은 어떻게 신청하나요?",
-        "온라인으로 신청 가능한 민원이 있나요?",
-        "방문 없이 처리할 수 있는 업무는?"
+        "인감증명서 발급에 필요한 서류는?",
+        "주민등록등본 발급에 필요한 서류는?",
+        "건축허가 신청 시 필요한 서류는?"
     ]
 }
 
@@ -163,6 +168,7 @@ if not st.session_state.messages:
 - 필요서류 및 구비사항 확인  
 - 처리기간 및 수수료 안내
 - 신청방법 및 접수처 정보
+- 관련 서식 안내
 
 궁금한 민원업무를 말씀해 주시면 자세히 안내해드리겠습니다! 😊
     """
@@ -192,11 +198,8 @@ if "selected_question" in st.session_state:
                     st.session_state.api_key
                 )
                 
-                # 답변에 추가 정보 포함
-                enhanced_response = f"{response}\n\n---\n💬 **추가 문의**: 곡성군청 ☎ 061-360-0000\n🌐 **온라인**: 곡성군 홈페이지 또는 정부24"
-                
-                st.markdown(enhanced_response)
-                st.session_state.messages.append({"role": "assistant", "content": enhanced_response})
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
                 
         except Exception as e:
             error_msg = f"❌ 답변 생성 중 오류가 발생했습니다: {str(e)}"
@@ -219,33 +222,15 @@ if prompt := st.chat_input("민원업무에 대해 궁금한 점을 입력하세
                     st.session_state.api_key
                 )
                 
-                # 답변에 추가 정보 포함
-                enhanced_response = f"{response}\n\n---\n💬 **추가 문의**: 곡성군청 ☎ 061-360-0000\n🌐 **온라인**: 곡성군 홈페이지 또는 정부24"
-                
-                st.markdown(enhanced_response)
-                st.session_state.messages.append({"role": "assistant", "content": enhanced_response})
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
                 
         except Exception as e:
             error_msg = f"❌ 답변 생성 중 오류가 발생했습니다: {str(e)}"
             st.error(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
-# 피드백 시스템
-st.sidebar.markdown("---")
-st.sidebar.subheader("📝 서비스 평가")
-col1, col2 = st.sidebar.columns(2)
-
-with col1:
-    if st.button("👍 도움되었어요"):
-        st.sidebar.success("피드백 감사합니다!")
-
-with col2:
-    if st.button("👎 개선필요"):
-        feedback = st.sidebar.text_area("개선사항을 알려주세요:", height=100)
-        if st.sidebar.button("의견 제출"):
-            st.sidebar.info("소중한 의견 감사합니다!")
-
-# 푸터
+# 푸터 (수정됨 - 배경색과 테두리 추가로 가독성 향상)
 st.markdown("""
 <div class="footer">
     <h4>🏛️ 곡성군청</h4>
@@ -255,3 +240,5 @@ st.markdown("""
     <small>⚠️ 본 서비스는 AI 기반 안내서비스로, 정확한 민원처리를 위해서는 담당부서에 직접 문의하시기 바랍니다.</small>
 </div>
 """, unsafe_allow_html=True)
+
+
