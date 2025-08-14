@@ -166,7 +166,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 - 2) 처리 절차 단계별 설명
 - 3) 신청방법(방문/온라인/전화), 접수처, 담당부서
 - 4) 관련 법령/조례 정확히 인용
-- 5) 가능한 경우 관련 별지/서식 안내
+- 5) 별지/서식 안내 (다운로드 URL 제공)
 - 6) 처리시간, '근거 출처 모아보기', 시스템 메타데이터(예: content='', additional_kwargs, response_metadata, id)는 절대 출력하지 않음
 
 [문맥]
@@ -178,6 +178,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 
 [답변]
 """
+
 
 
 
