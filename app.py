@@ -317,14 +317,14 @@ def setup_sidebar():
     st.sidebar.markdown("---")
     
     # 빠른 질문 템플릿
-    st.sidebar.title("🚀 빠른 질문")
+    st.sidebar.title("🚀 주요 민원들")
     
     quick_questions = [
-        "여권 재발급 시 필요한 서류는?",
-        "정보공개 청구 시 필요한 서류는?",
-        "인감증명서 발급에 필요한 서류는?",
-        "주민등록등본 발급에 필요한 서류는?",
-        "건축허가 신청 시 필요한 서류는?"
+        "여권을 발급 받고 싶어요",
+        "주민등록등본을 발급 받고 싶어요",
+        "인감증명서를 발급 받고 싶어요",
+        "정보공개 청구 방법을 알고 싶어요",
+        "건축허가 신청 시 필요한 서류를 알고 싶어요"
     ]
     
     for i, question in enumerate(quick_questions):
@@ -603,6 +603,7 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
 
 
