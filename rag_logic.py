@@ -1,150 +1,209 @@
 # rag_logic.py
 
 import os
-import hashlib
-import json
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
+import re
+from typing import List, Tuple, Optional, Dict, Any
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
-import streamlit as st
-from dotenv import load_dotenv
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema.runnable import RunnablePassthrough
+from langchain.schema.output_parser import StrOutputParser
+from langchain.schema import Document
 
-# --- 설정값 ---
-PDF_PATH = "minweonpyeonram-2025.pdf"
-FAISS_INDEX_PATH = "./faiss_index_minweon" # 벡터 DB를 저장할 폴더
-HASH_FILE_PATH = os.path.join(FAISS_INDEX_PATH, "pdf_hash.json") # PDF 파일 변경 감지를 위한 해시 저장 파일
+from utils import file_md5, ensure_dir
 
-def get_pdf_hash(file_path):
-    """PDF 파일의 해시(SHA-256) 값을 계산하여 파일 변경 여부를 확인합니다."""
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+FAISS_STORE_DIR = "./storage/faiss_minweonpyeonram_2025"
+EMBED_MODEL = "text-embedding-3-small"
+CHAT_MODEL = "gpt-4o-mini"
 
-# Streamlit의 캐시 기능을 사용해 벡터 DB와 RAG 체인을 한번만 로드합니다.
-# 이렇게 하면 앱을 새로고침해도 매번 새로 만들지 않아 매우 빠릅니다.
-@st.cache_resource(show_spinner="AI 민원 상담봇을 준비 중입니다...")
-def initialize_rag_chain():
-    """
-    RAG 체인을 초기화하는 함수.
-    1. PDF 파일의 변경 여부를 확인합니다.
-    2. 변경되지 않았으면 저장된 벡터 DB를 로드합니다.
-    3. 변경되었거나 새로 만들 경우, PDF를 읽어 벡터 DB를 생성하고 저장합니다.
-    4. 어르신 눈높이에 맞춘 프롬프트와 함께 RAG 체인을 생성하여 반환합니다.
-    """
-    load_dotenv()
-    if not os.getenv("OPENAI_API_KEY"):
-        st.error("OpenAI API 키가 설정되지 않았습니다. .env 파일에 키를 추가해주세요.")
-        return None, None
+def extract_issue_number(filename: str) -> str:
+    pattern = r'제(\d+)호'
+    match = re.search(pattern, filename)
+    if match:
+        return match.group(1)
+    return "Unknown"
 
-    # PDF 파일 존재 여부 확인
-    if not os.path.exists(PDF_PATH):
-        st.error(f"'{PDF_PATH}' 파일을 찾을 수 없습니다. 프로젝트 폴더에 PDF 파일을 넣어주세요.")
-        return None, None
+def _build_source_info(file_name: str, page_num: int) -> str:
+    base_filename = os.path.splitext(file_name)[0]
+    return f"{base_filename}의 {page_num}p"
 
-    # 벡터 DB 저장 폴더 생성
-    os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
+def _load_pdf_with_metadata(pdf_path: str, display_name: str) -> List[Document]:
+    loader = PyPDFLoader(pdf_path)
+    docs = loader.load()
+    for i, doc in enumerate(docs):
+        doc.metadata['file_name'] = display_name
+        doc.metadata['document_name'] = display_name
+        original_page = doc.metadata.get('page', i)
+        page_num = int(original_page) + 1
+        doc.metadata['page_number'] = page_num
+        doc.metadata['source_info'] = _build_source_info(display_name, page_num)
+    return docs
 
-    current_pdf_hash = get_pdf_hash(PDF_PATH)
-    stored_hash = None
+def _split_docs(all_docs: List[Document]) -> List[Document]:
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50,
+        separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
+        length_function=len
+    )
+    splits = text_splitter.split_documents(all_docs)
+    for split in splits:
+        if 'source_info' not in split.metadata:
+            file_name = split.metadata.get('file_name', 'Unknown')
+            page_num = split.metadata.get('page_number', 'Unknown')
+            split.metadata['source_info'] = _build_source_info(file_name, page_num)
+        preview = split.page_content[:100] + ("..." if len(split.page_content) > 100 else "")
+        split.metadata['content_preview'] = preview
+    return splits
 
-    # 저장된 해시 값 읽기
-    if os.path.exists(HASH_FILE_PATH):
-        with open(HASH_FILE_PATH, 'r') as f:
-            stored_hash = json.load(f).get('hash')
+def _save_faiss(vectorstore: FAISS, store_dir: str):
+    ensure_dir(store_dir)
+    vectorstore.save_local(store_dir)
 
-    embeddings = OpenAIEmbeddings()
+def _load_faiss(store_dir: str, embeddings: OpenAIEmbeddings) -> Optional[FAISS]:
+    if not os.path.isdir(store_dir):
+        return None
+    try:
+        vs = FAISS.load_local(store_dir, embeddings=embeddings, allow_dangerous_deserialization=True)
+        return vs
+    except Exception:
+        return None
 
-    # PDF가 변경되지 않았다면 기존 벡터 DB 로드
-    if os.path.exists(os.path.join(FAISS_INDEX_PATH, "index.faiss")) and current_pdf_hash == stored_hash:
-        st.info("기존에 저장된 민원편람 데이터를 불러옵니다.")
-        vectorstore = FAISS.load_local(
-            FAISS_INDEX_PATH,
-            embeddings,
-            allow_dangerous_deserialization=True  # 사용자 신뢰 기반 로드 허용
-        )
-    # PDF가 변경되었거나 처음 실행하는 경우 새로 생성
-    else:
-        st.info("새로운 민원편람 데이터를 AI가 읽고 학습합니다. 잠시만 기다려주세요...")
-        # 1. PDF 로드 및 메타데이터 보강
-        loader = PyPDFLoader(PDF_PATH)
-        docs = loader.load()
-        for doc in docs:
-            page_num = doc.metadata.get('page', 0) + 1
-            file_name = os.path.basename(PDF_PATH)
-            doc.metadata['source_info'] = f"{file_name}의 {page_num}페이지"
+def _faiss_stamp_path(store_dir: str) -> str:
+    return os.path.join(store_dir, "SOURCE_HASH.txt")
 
-        # 2. 텍스트 분할
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        splits = text_splitter.split_documents(docs)
+def _read_stamp(store_dir: str) -> Optional[str]:
+    stamp_path = _faiss_stamp_path(store_dir)
+    if not os.path.exists(stamp_path):
+        return None
+    try:
+        with open(stamp_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return None
 
-        # 3. 임베딩 및 벡터 DB 생성
-        vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
+def _write_stamp(store_dir: str, value: str):
+    ensure_dir(store_dir)
+    with open(_faiss_stamp_path(store_dir), "w", encoding="utf-8") as f:
+        f.write(value)
 
-        # 4. 벡터 DB와 해시 값 저장
-        vectorstore.save_local(FAISS_INDEX_PATH)
-        with open(HASH_FILE_PATH, 'w') as f:
-            json.dump({'hash': current_pdf_hash}, f)
-        st.success("AI가 민원편람 학습을 완료했습니다!")
+def initialize_vectorstore(openai_api_key: str, pdf_path: str, display_name: str) -> Tuple[FAISS, OpenAIEmbeddings]:
+    if not openai_api_key or not openai_api_key.startswith("sk-"):
+        raise ValueError("유효한 OpenAI API 키를 입력해주세요.")
 
-    # 검색기(Retriever) 생성
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key, model=EMBED_MODEL)
 
-    # AI에게 역할을 부여하는 프롬프트 (어르신 눈높이 맞춤)
-    template = """
-    당신은 전라남도 곡성군의 민원 업무를 안내하는 친절한 AI 상담원입니다.
-    사용자의 질문에 대해 아래의 '참고 자료'를 바탕으로, 70대 이상 어르신께서 이해하기 쉽도록 답변해야 합니다.
+    # PDF 해시 계산
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF 파일을 찾을 수 없습니다: {pdf_path}")
+    pdf_hash = file_md5(pdf_path)
 
-    반드시 다음 규칙을 지켜주세요:
-    1. 답변은 항상 "어르신, 문의하신 내용에 대해 알려드릴게요." 와 같은 친절한 인사로 시작하세요.
-    2. 전문 용어는 최대한 피하고, 쉬운 단어로 풀어서 설명해주세요.
-    3. 답변은 아래의 '답변 형식'에 맞춰, 각 항목을 굵은 글씨와 번호로 명확하게 구분해서 알려주세요.
-    4. 각 항목의 내용 끝에는 반드시 정보의 출처를 정확히 명시해야 합니다. 예: [출처: minweonpyeonram-2025.pdf의 15페이지]
-    5. 참고 자료에 내용이 없으면 "죄송합니다, 어르신. 해당 내용은 민원편람에서 찾을 수 없었습니다. 곡성군청 민원실(061-360-8262)로 문의하시면 더 정확한 안내를 받으실 수 있습니다." 라고 답변해주세요.
+    # 저장된 인덱스가 있고, 스탬프 해시가 같으면 로드
+    existing = _load_faiss(FAISS_STORE_DIR, embeddings)
+    stamp = _read_stamp(FAISS_STORE_DIR)
+    if existing is not None and stamp == pdf_hash:
+        return existing, embeddings
 
-    ---
-    [답변 형식]
+    # 새로 구축
+    all_docs = _load_pdf_with_metadata(pdf_path, display_name)
+    if not all_docs:
+        raise ValueError("PDF에서 텍스트를 추출할 수 없습니다.")
+    total_text_len = sum(len(d.page_content) for d in all_docs)
+    if total_text_len < 100:
+        raise ValueError("문서 내용이 너무 짧습니다. 스캔된 이미지 PDF일 수 있습니다.")
 
-    ## **어떤 민원인가요?**
-    - [민원 업무에 대한 쉽고 간단한 설명] [출처]
+    splits = _split_docs(all_docs)
+    vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
+    _save_faiss(vectorstore, FAISS_STORE_DIR)
+    _write_stamp(FAISS_STORE_DIR, pdf_hash)
+    return vectorstore, embeddings
 
-    ### **1. 무엇을 준비해야 하나요? (구비서류)**
-    - [필요한 서류 목록] [출처]
+def make_retriever(vectorstore: FAISS):
+    return vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6})
 
-    ### **2. 어디로 가야 하나요? (신청장소/담당부서)**
-    - [신청 장소와 담당 부서 이름] [출처]
+def build_prompt() -> ChatPromptTemplate:
+    template = """당신은 곡성군 민원 상담 전문가입니다. 70대 이상 어르신도 이해하기 쉽도록 쉬운 말로, 단계별로, 자세하게 안내하세요.
+민원명-대상-신청방법-구비서류-처리기간-수수료-절차-법적근거-접수처-서식-유의사항-출처 순으로 답변합니다.
 
-    ### **3. 돈은 얼마나 드나요? (수수료)**
-    - [수수료 금액, 면제 대상 등] [출처]
+중요:
+- 법률 명칭은 괄호로 간단히만 덧붙이고, 먼저 쉬운 설명으로 풀어주세요.
+- 각 항목을 짧고 명확한 문장으로, 목록 형태로 설명하세요.
+- 반드시 “출처: 파일명의 페이지”를 답변 맨 아래에 모아서 표시하세요.
+- 아래 문맥에는 각 단락 앞에 [출처: 파일명의 Xp]가 붙습니다. 해당 출처를 답변에 반영하세요.
 
-    ### **4. 처리하는 데 얼마나 걸리나요? (처리기간)**
-    - [처리 기간] [출처]
+[문맥]
+{context}
 
-    ---
-    [참고 자료]
-    {context}
-    ---
-    [사용자 질문]
-    {question}
-    """
-    prompt = ChatPromptTemplate.from_template(template)
+[질문]
+{question}
 
-    # LLM 모델 설정
-    llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+[답변]
+"""
+    return ChatPromptTemplate.from_template(template)
 
-    # RAG 체인 구성
+def _format_docs_for_context(docs: List[Document]) -> str:
+    formatted = []
+    for doc in docs:
+        source = doc.metadata.get('source_info', 'Unknown')
+        content = doc.page_content
+        formatted.append(f"[출처: {source}]\n{content}")
+    return "\n\n".join(formatted)
+
+def _collect_sources(docs: List[Document]) -> List[str]:
+    seen = set()
+    ordered = []
+    for d in docs:
+        s = d.metadata.get("source_info")
+        if s and s not in seen:
+            seen.add(s)
+            ordered.append(s)
+    return ordered
+
+def initialize_rag_chain(openai_api_key: str, pdf_path: str, display_name: str = "minweonpyeonram-2025.pdf"):
+    vectorstore, embeddings = initialize_vectorstore(openai_api_key, pdf_path, display_name)
+    retriever = make_retriever(vectorstore)
+    prompt = build_prompt()
+    llm = ChatOpenAI(model=CHAT_MODEL, temperature=0, openai_api_key=openai_api_key, max_tokens=1000, timeout=60)
+
+    def format_docs(docs: List[Document]) -> str:
+        return _format_docs_for_context(docs)
+
     rag_chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
+        {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
     )
+    return rag_chain, retriever
 
-    return rag_chain
+def get_answer(chain, retriever, question: str, openai_api_key: str) -> str:
+    # 검색
+    docs = retriever.get_relevant_documents(question)
+    if not docs:
+        return "해당 문서에서 관련 정보를 찾을 수 없습니다."
 
+    # 컨텍스트 생성
+    context = _format_docs_for_context(docs)
+
+    # 프롬프트
+    prompt = build_prompt()
+    llm = ChatOpenAI(model=CHAT_MODEL, temperature=0, openai_api_key=openai_api_key, max_tokens=1000, timeout=60)
+    final_prompt = prompt.format(context=context, question=question)
+    resp = llm.invoke(final_prompt)
+
+    # 하단 출처 단 한번 더 수집하여 붙이기
+    sources = _collect_sources(docs)
+    if sources:
+        src_text = "\n".join(f"- {s}" for s in sources)
+        # 모델 답변 뒤에 “출처” 섹션을 추가(중복 방지)
+        content = resp.content.strip()
+        if "출처" not in content:
+            content += f"\n\n출처\n{src_text}"
+        else:
+            content += f"\n{src_text}"
+        return content
+    return resp.content.strip()
 
