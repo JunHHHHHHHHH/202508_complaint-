@@ -19,7 +19,8 @@ def init_session_state():
         "chat_id": str(uuid.uuid4()),
         "last_interaction": None,
         "user_feedback": {},
-        "question_count": 0
+        "question_count": 0,
+        "processing": False  # 답변 생성 중복 방지
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -30,13 +31,13 @@ def main():
     init_session_state()
     
     st.set_page_config(
-        page_title="🏛️ 곡성군 AI민원상담봇",
+        page_title="🏛️ 곡성군 민원편람 AI 상담봇",
         page_icon="🏛️",
         layout="wide",
         initial_sidebar_state="expanded"
     )
 
-    # 고급 CSS 스타일링
+    # 고급 CSS 스타일링 (수정됨)
     st.markdown("""
     <style>
         /* 메인 헤더 스타일 */
@@ -150,25 +151,26 @@ def main():
             font-weight: 500;
         }
 
-        /* 퀵 액션 버튼 스타일 */
-        .quick-action {
-            background: linear-gradient(145deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 0.8rem 1.5rem;
-            border-radius: 25px;
-            border: none;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-            margin: 0.3rem;
-            display: inline-block;
-            text-decoration: none;
+        /* 채팅 입력창 스타일 개선 */
+        .stChatInputContainer {
+            border: 3px solid #667eea !important;
+            border-radius: 15px !important;
+            background: linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%) !important;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2) !important;
+            padding: 5px !important;
         }
-
-        .quick-action:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        
+        .stChatInputContainer textarea {
+            background-color: white !important;
+            border: none !important;
+            border-radius: 10px !important;
+            font-size: 16px !important;
+            padding: 12px !important;
+        }
+        
+        .stChatInputContainer textarea:focus {
+            box-shadow: 0 0 0 2px #667eea !important;
+            outline: none !important;
         }
 
         /* 채팅 메시지 스타일 개선 */
@@ -187,69 +189,46 @@ def main():
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
         }
 
-        /* 푸터 스타일 개선 */
+        /* 푸터 스타일 개선 (수정됨 - 작고 심플하게) */
         .footer {
-            background: linear-gradient(145deg, #e3f2fd 0%, #bbdefb 100%);
-            border: 2px solid #2196f3;
-            padding: 2rem;
-            border-radius: 20px;
-            margin-top: 3rem;
+            background: none;
+            border: 1px solid #e9ecef;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 2rem;
             text-align: center;
-            color: #333;
-            box-shadow: 0 8px 30px rgba(33, 150, 243, 0.1);
+            color: #666;
+            font-size: 0.9em;
         }
 
         .footer h4 {
-            color: #1976d2;
-            margin-bottom: 1rem;
-            font-size: 1.4em;
-            font-weight: 700;
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.1em;
+            font-weight: 600;
         }
 
         .footer p {
-            margin: 0.5rem 0;
-            color: #555;
-            font-weight: 500;
+            margin: 0.2rem 0;
+            color: #666;
+            font-size: 0.85em;
         }
 
         .footer hr {
-            border-color: #2196f3;
-            margin: 1.5rem 0;
+            border-color: #e9ecef;
+            margin: 0.8rem 0;
             opacity: 0.5;
         }
 
         .footer small {
-            color: #666;
+            color: #888;
             font-style: italic;
-            background: rgba(255, 255, 255, 0.8);
-            padding: 0.5rem;
-            border-radius: 8px;
-            display: inline-block;
+            font-size: 0.8em;
         }
 
         /* 로딩 애니메이션 개선 */
         .stSpinner > div {
             border-color: #667eea transparent transparent transparent;
-        }
-
-        /* 성공 메시지 스타일 */
-        .success-message {
-            background: linear-gradient(145deg, #d4edda 0%, #c3e6cb 100%);
-            color: #155724;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 4px solid #28a745;
-            margin: 1rem 0;
-        }
-
-        /* 경고 메시지 스타일 */
-        .warning-message {
-            background: linear-gradient(145deg, #fff3cd 0%, #ffeaa7 100%);
-            color: #856404;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 4px solid #ffc107;
-            margin: 1rem 0;
         }
 
         /* 애니메이션 효과 */
@@ -287,7 +266,7 @@ def main():
     st.markdown("""
     <div class="main-header fade-in-up">
         <h1>🏛️ 곡성군 AI민원상담봇</h1>
-        <p>민원업무 관련 구비서류, 처리기간, 처리흐름 등을 AI가 쉽고 빠르게 안내해드립니다</p>
+        <p>AI가 '곡성군 민원편람'을 기준으로 민원 관련 구비서류, 처리기간, 절차 등을 쉽고 빠르게 안내해드립니다</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -303,15 +282,18 @@ def main():
     initialize_system()
 
     # 메인 탭 구성
-    tab1, tab2 = st.tabs(["💬 AI 상담", "📊 사용 통계"])
+    tab1, tab2, tab3 = st.tabs(["💬 AI 상담", "📊 사용 통계", "ℹ️ 서비스 정보"])
     
     with tab1:
         display_chat_interface()
     
     with tab2:
-        display_usage_stats()    
+        display_usage_stats()
     
-    # 푸터
+    with tab3:
+        display_service_info()
+
+    # 푸터 (수정됨 - 작고 심플하게)
     display_footer()
 
 def setup_sidebar():
@@ -335,13 +317,13 @@ def setup_sidebar():
     st.sidebar.markdown("---")
     
     # 빠른 질문 템플릿
-    st.sidebar.title("🚀 주요 민원을 클릭해보세요")
+    st.sidebar.title("🚀 빠른 질문")
     
     quick_questions = [
-        "여권 발급 절차는?",
-        "주민등록등본 발급 절차는?",
-        "인감증명서 발급 절차는?",
-        "정보공개 청구 방법은?",
+        "여권 재발급 시 필요한 서류는?",
+        "정보공개 청구 시 필요한 서류는?",
+        "인감증명서 발급에 필요한 서류는?",
+        "주민등록등본 발급에 필요한 서류는?",
         "건축허가 신청 시 필요한 서류는?"
     ]
     
@@ -351,8 +333,9 @@ def setup_sidebar():
             key=f"quick_q_{i}",
             help=f"클릭하면 '{question}' 질문이 자동으로 입력됩니다"
         ):
-            st.session_state.selected_question = question
-            st.rerun()
+            if not st.session_state.processing:  # 중복 방지
+                st.session_state.selected_question = question
+                st.rerun()
     
     st.sidebar.markdown("---")
     
@@ -360,6 +343,8 @@ def setup_sidebar():
     if st.sidebar.button("🗑️ 대화 기록 초기화", type="secondary"):
         st.session_state.messages = []
         st.session_state.chat_id = str(uuid.uuid4())
+        st.session_state.question_count = 0
+        st.session_state.user_feedback = {}
         st.success("대화 기록이 초기화되었습니다.")
         st.rerun()
     
@@ -367,13 +352,8 @@ def setup_sidebar():
 
 def display_api_key_warning():
     """API 키 입력 경고를 표시합니다."""
-    st.markdown("""
-    <div class="warning-message fade-in-up">
-        <h3>⚠️ API 키가 필요합니다</h3>
-        <p>사이드바에서 OpenAI API 키를 입력해주세요.</p>
-        <p><strong>API 키 발급:</strong> <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a></p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.warning("⚠️ 사이드바에서 OpenAI API 키를 입력해주세요.")
+    st.info("💡 API 키 발급: https://platform.openai.com/api-keys")
 
 def initialize_system():
     """시스템을 초기화합니다."""
@@ -426,7 +406,6 @@ def display_chat_interface():
     </div>
     """, unsafe_allow_html=True)
 
-    
     # 사용 안내
     with st.expander("📖 사용 안내", expanded=False):
         st.markdown("#### 🎯 이용 방법")
@@ -435,7 +414,7 @@ def display_chat_interface():
         2. **직접 질문**: 아래 채팅창에 궁금한 민원업무를 입력하세요
         3. **구체적 질문**: "○○ 신청 방법", "○○ 필요서류", "○○ 처리기간" 등
         """)
-    
+        
         st.markdown("#### 💡 질문 예시")
         st.markdown("""
         - "여권 발급은 어떻게 하나요?"
@@ -443,7 +422,6 @@ def display_chat_interface():
         - "주민등록 관련 업무는 무엇이 있나요?"
         - "온라인으로 신청할 수 있는 민원이 있나요?"
         """)
-        
 
     # 채팅 기록 초기화
     if "messages" not in st.session_state:
@@ -452,7 +430,7 @@ def display_chat_interface():
     # 환영 메시지
     if not st.session_state.messages:
         welcome_message = """
-안녕하세요! 🙋‍♀️ 곡성군 민원편람 AI 상담봇입니다.
+안녕하세요! 🙋‍♀️ 곡성군 AI민원상담원입니다.
 
 **무엇을 도와드릴까요?**
 - 민원업무 처리절차 안내
@@ -465,28 +443,48 @@ def display_chat_interface():
         """
         st.session_state.messages.append({"role": "assistant", "content": welcome_message})
 
-    # 채팅 기록 표시
-    for message in st.session_state.messages:
+    # 채팅 기록 표시 (순차적으로 하나씩)
+    for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            
+            # 어시스턴트 메시지에 피드백 버튼 추가 (환영 메시지 제외)
+            if message["role"] == "assistant" and i > 0:
+                col1, col2, col3 = st.columns([1, 1, 3])
+                with col1:
+                    if st.button("👍 도움됨", key=f"like_{i}"):
+                        st.session_state.user_feedback[i] = "positive"
+                        st.success("피드백 감사합니다!")
+                
+                with col2:
+                    if st.button("👎 개선필요", key=f"dislike_{i}"):
+                        st.session_state.user_feedback[i] = "negative"
+                        st.info("피드백이 기록되었습니다.")
 
     # 선택된 빠른 질문 처리
-    if st.session_state.get("selected_question"):
+    if st.session_state.get("selected_question") and not st.session_state.processing:
         process_question(st.session_state.selected_question)
         st.session_state.selected_question = None
 
-    # 채팅 입력
-    if prompt := st.chat_input("민원업무에 대해 궁금한 점을 입력하세요..."):
-        process_question(prompt)
+    # 채팅 입력 (눈에 잘 보이도록 개선됨)
+    if not st.session_state.processing:
+        if prompt := st.chat_input("민원업무에 대해 궁금한 점을 입력하세요..."):
+            process_question(prompt)
 
 def process_question(prompt):
-    """질문을 처리합니다."""
+    """질문을 처리합니다 (순차적 처리로 중복 방지)."""
+    if st.session_state.processing:
+        return
+        
+    st.session_state.processing = True
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.session_state.question_count += 1
     
+    # 즉시 사용자 메시지 표시
     with st.chat_message("user"):
         st.markdown(prompt)
     
+    # 답변 생성
     with st.chat_message("assistant"):
         try:
             with st.spinner("답변을 생성하고 있습니다..."):
@@ -508,22 +506,13 @@ def process_question(prompt):
                 st.markdown(response_with_time)
                 st.session_state.messages.append({"role": "assistant", "content": response_with_time})
                 
-                # 피드백 버튼
-                col1, col2, col3 = st.columns([1, 1, 3])
-                with col1:
-                    if st.button("👍 도움됨", key=f"like_{len(st.session_state.messages)}"):
-                        st.session_state.user_feedback[len(st.session_state.messages)] = "positive"
-                        st.success("피드백 감사합니다!")
-                
-                with col2:
-                    if st.button("👎 개선필요", key=f"dislike_{len(st.session_state.messages)}"):
-                        st.session_state.user_feedback[len(st.session_state.messages)] = "negative"
-                        st.info("피드백이 기록되었습니다.")
-                
         except Exception as e:
             error_msg = f"❌ 답변 생성 중 오류가 발생했습니다: {str(e)}"
             st.error(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    
+    st.session_state.processing = False
+    st.rerun()
 
 def display_usage_stats():
     """사용 통계를 표시합니다."""
@@ -570,29 +559,50 @@ def display_usage_stats():
     # 만족도 차트
     if st.session_state.user_feedback:
         st.subheader("📈 사용자 만족도")
-        feedback_data = {"긍정": positive_feedback, "부정": negative_feedback}
-        
-        # 간단한 막대 차트 표시
         col1, col2 = st.columns(2)
         with col1:
             st.metric("긍정 피드백", positive_feedback, delta=None)
         with col2:
             st.metric("부정 피드백", negative_feedback, delta=None)
 
-def display_footer():
-    """푸터를 표시합니다."""
+def display_service_info():
+    """서비스 정보를 표시합니다."""
+    st.subheader("ℹ️ 서비스 정보")
+    
     st.markdown("""
-    <div class="footer fade-in-up">
+    #### 🏛️ 곡성군 AI 민원상담봇
+    - **버전:** 2.0.0
+    - **최종 업데이트:** 2025년 8월
+    - **지원 문서:** 곡성군 민원편람 2025
+    
+    #### 🔧 주요 기능
+    - 민원업무 처리절차 안내
+    - 구비서류 및 서식 정보 제공
+    - 처리기간 및 수수료 안내
+    - 담당부서 및 연락처 정보
+    - 실시간 AI 기반 상담
+    
+    #### ⚡ 기술 스택
+    - Frontend: Streamlit
+    - AI Model: GPT-4o-mini
+    - Vector Database: FAISS
+    - Embeddings: OpenAI text-embedding-3-small
+    - Framework: LangChain
+    """)
+
+def display_footer():
+    """푸터를 표시합니다 (수정됨 - 작고 심플하게)."""
+    st.markdown("""
+    <div class="footer">
         <h4>🏛️ 곡성군청</h4>
-        <p>📞 대표전화: 061-360-0000 | 🌐 www.gokseong.go.kr</p>
-        <p>📍 전라남도 곡성군 곡성읍 군청로 15</p>
-        <hr>        
+        <p>📞 061-360-0000 | 🌐 www.gokseong.go.kr | 📍 전라남도 곡성군 곡성읍 군청로 15</p>
+        <hr>
+        <small>⚠️ 본 서비스는 AI 기반 민원 안내서비스 입니다.</small>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
 
 
 
