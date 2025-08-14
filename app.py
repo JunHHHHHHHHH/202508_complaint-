@@ -1,17 +1,15 @@
 import streamlit as st
 import os
 import time
-import uuid
 from rag_logic import (
-    prepare_vectorstore,        # 벡터스토어 준비 (저장/로드)
-    build_retriever,            # 검색기 생성
-    build_streaming_llm,        # 스트리밍 LLM 생성
-    make_context_and_sources,   # 질문→컨텍스트/출처/서식 추출
-    build_final_prompt          # 프롬프트 생성
+    prepare_vectorstore,
+    build_retriever,
+    build_streaming_llm,
+    make_context_and_sources,
+    build_final_prompt
 )
 
 
-# === 1. 세션 상태 초기화 ===
 def init_session_state():
     defaults = {
         "messages": [],
@@ -24,14 +22,14 @@ def init_session_state():
         "pdf_path": "minweonpyeonram-2025.pdf",
         "index_ready": False,
         "retriever": None,
-        "file_names": ["곡성군 민원편람 2025"]
+        "file_names": ["곡성군 민원편람 2025"],
+        "typing_delay": 0.02,  # 타자 속도
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-# === 2. 메인 ===
 def main():
     init_session_state()
     st.set_page_config(
@@ -41,7 +39,6 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # 다크 모드 & 모바일 최적화
     st.markdown("""
     <style>
         :root { color-scheme: dark; }
@@ -67,11 +64,12 @@ def main():
         @media (max-width: 768px) {
             .main-header h2 { font-size: 1.2em; }
             .main-header p { font-size: 0.8em; }
+            .metric-card { font-size: 0.85em; padding: 0.8rem; }
+            .footer { font-size: 0.7em; padding: 0.5rem; }
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # 헤더
     st.markdown("""
     <div class="main-header">
         <h2>🏛️ 곡성군 AI 민원상담봇</h2>
@@ -90,7 +88,6 @@ def main():
     display_footer()
 
 
-# === 3. 사이드바 ===
 def setup_sidebar():
     st.sidebar.title("API 설정")
     key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
@@ -98,13 +95,18 @@ def setup_sidebar():
         st.session_state.api_key = key
 
     st.sidebar.markdown("---")
+    st.sidebar.subheader("타자 속도")
+    speed = st.sidebar.selectbox("출력 속도", ["빠름", "보통", "느림"], index=1)
+    st.session_state.typing_delay = {"빠름": 0.01, "보통": 0.02, "느림": 0.05}[speed]
+
+    st.sidebar.markdown("---")
     st.sidebar.subheader("빠른 질문")
     quick_qs = [
         "여권을 발급 받고 싶어요",
-        "전입신고 방법을 알고 싶어요요",
-        "인감증명서 발급 받고 싶어요",
-        "정보공개를 청구방법을 알고 싶어요",
-        "건축허가 신청 절차를 알고 싶어요"
+        "정보공개 청구 시 필요한 서류는?",
+        "인감증명서 발급에 필요한 서류는?",
+        "주민등록등본 발급에 필요한 서류는?",
+        "건축허가 신청 시 필요한 서류는?"
     ]
     for q in quick_qs:
         if st.sidebar.button(q, key=f"btn_{q}"):
@@ -121,7 +123,6 @@ def setup_sidebar():
         st.experimental_rerun()
 
 
-# === 4. 시스템 초기화 ===
 def initialize_system():
     pdf_path = st.session_state.pdf_path
     vector_dir = st.session_state.vector_dir
@@ -142,7 +143,6 @@ def initialize_system():
             st.session_state.index_ready = True
 
 
-# === 5. 채팅 인터페이스 ===
 def display_chat_interface():
     st.markdown(
         f"<div class='metric-card'>📄 문서: <b>{', '.join(st.session_state.file_names)}</b> | 💬 질문 수: {st.session_state.question_count}</div>",
@@ -156,14 +156,13 @@ def display_chat_interface():
     if st.session_state.selected_question and not st.session_state.processing:
         q = st.session_state.selected_question
         st.session_state.selected_question = None
-        process_question_typing(q)
+        process_question_typing(q, st.session_state.typing_delay)
 
     if not st.session_state.processing:
         if prompt := st.chat_input("✍️ 민원업무 질문을 입력하세요..."):
-            process_question_typing(prompt)
+            process_question_typing(prompt, st.session_state.typing_delay)
 
 
-# === 6. 질문 처리 (타자기 스타일) ===
 def process_question_typing(prompt, delay=0.02):
     if st.session_state.processing:
         return
@@ -180,14 +179,12 @@ def process_question_typing(prompt, delay=0.02):
 
     with st.chat_message("assistant"):
         try:
-            from_html = st.empty()
+            container = st.empty()
             with st.spinner("🤖 답변 생성 중..."):
-                # 컨텍스트/서식 추출
                 context_text, _, annex_forms = make_context_and_sources(
                     st.session_state.retriever, prompt
                 )
 
-                # LLM
                 llm = build_streaming_llm(
                     model="gpt-4o-mini",
                     openai_api_key=st.session_state.api_key,
@@ -203,12 +200,15 @@ def process_question_typing(prompt, delay=0.02):
 
                 full_text = ""
                 for chunk in llm.stream(final_prompt):
-                    token = getattr(chunk, "content", None) or str(chunk)
+                    # 메타데이터가 출력되지 않도록 content만 안전하게 사용
+                    token = getattr(chunk, "content", None)
+                    if not token:
+                        continue
                     full_text += token
-                    from_html.markdown(full_text)
+                    container.markdown(full_text)
                     time.sleep(delay)
 
-                # 메타데이터, 처리시간 제거 -> 그대로 저장
+                # 처리시간/근거 출처 모아보기 출력 제거: 아무 것도 추가하지 않음
                 st.session_state.messages.append({"role": "assistant", "content": full_text})
 
         except Exception as e:
@@ -219,7 +219,6 @@ def process_question_typing(prompt, delay=0.02):
     st.session_state.processing = False
 
 
-# === 7. 푸터 ===
 def display_footer():
     st.markdown("""
     <div class="footer">
@@ -231,6 +230,8 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
