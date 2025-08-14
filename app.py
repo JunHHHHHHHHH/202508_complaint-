@@ -93,17 +93,12 @@ def setup_sidebar():
     key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
     if key:
         st.session_state.api_key = key
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("타자 속도")
-    speed = st.sidebar.selectbox("출력 속도", ["빠름", "보통", "느림"], index=1)
-    st.session_state.typing_delay = {"빠름": 0.01, "보통": 0.02, "느림": 0.05}[speed]
-
+   
     st.sidebar.markdown("---")
     st.sidebar.subheader("빠른 질문")
     quick_qs = [
         "여권을 발급 받고 싶어요",
-        "전입신고 방법을 알고 싶어요요",
+        "전입신고 방법을 알고 싶어요",
         "인감증명서 발급 받고 싶어요",
         "정보공개를 청구방법을 알고 싶어요",
         "건축허가 신청 절차를 알고 싶어요"
@@ -230,6 +225,7 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
 
 
