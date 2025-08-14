@@ -158,16 +158,15 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
     # 제목/본문 동일 폰트 크기, 굵기만 사용하도록 지침 포함
     return f"""
 당신은 곡성군 민원 상담 전문가입니다.
-아래 문맥을 토대로 질문에 대한 답변을 작성하세요.
+아래 문맥을 토대로 질문에 대한 답변을 자세하게 작성하세요.
 
 지침:
 - 모든 제목은 본문과 동일 크기(굵기만 적용), 목록은 불릿/번호 사용
 - 1) 민원업무명, 처리기간, 구비서류, 수수료
 - 2) 처리 절차 단계별 설명
 - 3) 신청방법(방문/온라인/전화), 접수처, 담당부서
-- 4) 관련 법령/조례 정확히 인용
-- 5) 별지/서식 안내 (다운로드 URL 제공)
-- 6) 처리시간, '근거 출처 모아보기', 시스템 메타데이터(예: content='', additional_kwargs, response_metadata, id)는 절대 출력하지 않음
+- 4) 관련 법령/조례 인용
+- 5) 별지/서식 안내 
 
 [문맥]
 {context}
@@ -178,6 +177,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 
 [답변]
 """
+
 
 
 
