@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import time
+import re  # ✅ 정규표현식 모듈 추가
 from rag_logic import (
     prepare_vectorstore,
     build_retriever,
@@ -198,6 +199,32 @@ def initialize_system():
             st.session_state.index_ready = True
 
 # ---------------------------
+# 카드 포맷 변환
+# ---------------------------
+def format_as_cards(text: str):
+    sections = {
+        "민원업무명": "", "처리기간": "", "구비서류": "", "수수료": "", "처리 절차": ""
+    }
+    for key in sections.keys():
+        pattern = fr"{key}\s*:(.+?)(?=\n\n|$)"
+        m = re.search(pattern, text, re.S)
+        if m:
+            content = m.group(1).strip()
+            if key == "구비서류":
+                items = [f"<div class='msg-indent'>• {i.strip()}</div>" for i in content.split("\n") if i.strip()]
+                content = "\n".join(items)
+            if key == "처리 절차":
+                content = re.sub(r"(\d+\s*단계\s*:)", r"<span class='step-num'>\1</span>", content)
+                steps = [f"<div class='msg-indent'>{line.strip()}</div>" for line in content.split("\n") if line.strip()]
+                content = "\n".join(steps)
+            sections[key] = content
+    html = ""
+    for k, v in sections.items():
+        if v:
+            html += f"<div class='card-box'><div class='card-title'>{k}</div><div class='card-content'>{v}</div></div>"
+    return html
+
+# ---------------------------
 # 채팅 UI
 # ---------------------------
 def display_chat_interface():
@@ -208,7 +235,7 @@ def display_chat_interface():
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+            st.markdown(m["content"], unsafe_allow_html=True)  # HTML 표시 가능
 
     if st.session_state.selected_question and not st.session_state.processing:
         q = st.session_state.selected_question
@@ -219,48 +246,29 @@ def display_chat_interface():
         if prompt := st.chat_input("✍️ 궁금한 민원을 입력하세요..."):
             process_question_typing(prompt, st.session_state.typing_delay)
 
-def format_as_cards(text:str):
-    sections = {
-        "민원업무명": "", "처리기간":"", "구비서류":"", "수수료":"", "처리 절차":""
-    }
-    for key in sections.keys():
-        pattern = fr"{key}\s*:(.+?)(?=\n\n|$)"
-        m = re.search(pattern, text, re.S)
-        if m:
-            content = m.group(1).strip()
-            if key=="구비서류":
-                items = [f"<div class='msg-indent'>• {i.strip()}</div>" for i in content.split("\n") if i.strip()]
-                content = "\n".join(items)
-            if key=="처리 절차":
-                content = re.sub(r"(\d+\s*단계\s*:)", r"<span class='step-num'>\1</span>", content)
-                steps = [f"<div class='msg-indent'>{line.strip()}</div>" for line in content.split("\n") if line.strip()]
-                content = "\n".join(steps)
-            sections[key]=content
-    html=""
-    for k,v in sections.items():
-        if v:
-            html += f"<div class='card-box'><div class='card-title'>{k}</div><div class='card-content'>{v}</div></div>"
-    return html
-
 # ---------------------------
 # 질문 입력 처리(타자 효과)
 # ---------------------------
 def process_question_typing(prompt, delay=0.02):
-    if st.session_state.processing: return
-    st.session_state.processing=True
-    st.session_state.messages.append({"role":"user","content":prompt})
-    st.session_state.question_count+=1
-    with st.chat_message("user"): st.markdown(prompt)
+    if st.session_state.processing:
+        return
+    st.session_state.processing = True
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.question_count += 1
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
     with st.chat_message("assistant"):
         try:
-            container=st.empty()
+            container = st.empty()
             with st.spinner("🤖 답변 생성 중..."):
-                ctx,_,af = make_context_and_sources(st.session_state.retriever, prompt)
-                llm=build_streaming_llm("gpt-4o-mini", st.session_state.api_key, max_tokens=800, temperature=0)
+                ctx, _, af = make_context_and_sources(st.session_state.retriever, prompt)
+                llm = build_streaming_llm("gpt-4o-mini", st.session_state.api_key, max_tokens=800, temperature=0)
                 fp = build_final_prompt(ctx, prompt, af)
-                full_text=""
+                full_text = ""
                 for chunk in llm.stream(fp):
-                    token=getattr(chunk,"content",None)
+                    token = getattr(chunk, "content", None)
                     if token:
                         full_text += token
                         container.markdown(full_text)
@@ -269,11 +277,13 @@ def process_question_typing(prompt, delay=0.02):
                 formatted = re.sub(r"\n*(\d+\.)", r"\n\n\1", full_text).strip()
                 # 카드 변환
                 card_html = format_as_cards(formatted)
-                st.session_state.messages.append({"role":"assistant","content":f"<div class='msg-bot'>{card_html}</div>"})
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": f"<div class='msg-bot'>{card_html}</div>"}
+                )
         except Exception as e:
             st.error(e)
-            st.session_state.messages.append({"role":"assistant","content":str(e)})
-    st.session_state.processing=False
+            st.session_state.messages.append({"role": "assistant", "content": str(e)})
+    st.session_state.processing = False
 
 # ---------------------------
 # 푸터
@@ -291,4 +301,5 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
+
 
