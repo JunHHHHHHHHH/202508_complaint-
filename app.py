@@ -262,10 +262,9 @@ def process_question_typing(prompt, delay=0.02):
                     time.sleep(delay)
 
                 # 🚩 자동 한 줄 띄우기 처리 (1번, 2번 처럼 단락 나눔)
-                formatted_text = re.sub(r"(?m)(\d+\.)", r"\n\2", full_text).strip()
-
+                formatted_text = re.sub(r"\n*(\d+\.)", r"\n\n\1", full_text).strip()
                 st.session_state.messages.append({"role": "assistant", "content": formatted_text})
-
+                
         except Exception as e:
             err_msg = f"❌ 오류: {e}"
             st.error(err_msg)
@@ -289,6 +288,7 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
