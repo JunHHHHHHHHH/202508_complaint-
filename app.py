@@ -246,57 +246,34 @@ def format_as_cards(text:str):
 # 질문 입력 처리(타자 효과)
 # ---------------------------
 def process_question_typing(prompt, delay=0.02):
-    if st.session_state.processing:
-        return
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and \
-       st.session_state.messages[-1]["content"] == prompt:
-        return
-
-    st.session_state.processing = True
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.session_state.question_count += 1
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
+    if st.session_state.processing: return
+    st.session_state.processing=True
+    st.session_state.messages.append({"role":"user","content":prompt})
+    st.session_state.question_count+=1
+    with st.chat_message("user"): st.markdown(prompt)
     with st.chat_message("assistant"):
         try:
-            container = st.empty()
+            container=st.empty()
             with st.spinner("🤖 답변 생성 중..."):
-                context_text, _, annex_forms = make_context_and_sources(
-                    st.session_state.retriever, prompt
-                )
-
-                llm = build_streaming_llm(
-                    model="gpt-4o-mini",
-                    openai_api_key=st.session_state.api_key,
-                    max_tokens=800,
-                    temperature=0
-                )
-
-                final_prompt = build_final_prompt(
-                    context=context_text,
-                    question=prompt,
-                    annex_forms=annex_forms
-                )
-
-                full_text = ""
-                for chunk in llm.stream(final_prompt):
-                    token = getattr(chunk, "content", None)
-                    if not token:
-                        continue
-                    full_text += token
-                    container.markdown(full_text)
-                    time.sleep(delay)
-
-                st.session_state.messages.append({"role": "assistant", "content": full_text})
-
+                ctx,_,af = make_context_and_sources(st.session_state.retriever, prompt)
+                llm=build_streaming_llm("gpt-4o-mini", st.session_state.api_key, max_tokens=800, temperature=0)
+                fp = build_final_prompt(ctx, prompt, af)
+                full_text=""
+                for chunk in llm.stream(fp):
+                    token=getattr(chunk,"content",None)
+                    if token:
+                        full_text += token
+                        container.markdown(full_text)
+                        time.sleep(delay)
+                # 번호 줄바꿈
+                formatted = re.sub(r"\n*(\d+\.)", r"\n\n\1", full_text).strip()
+                # 카드 변환
+                card_html = format_as_cards(formatted)
+                st.session_state.messages.append({"role":"assistant","content":f"<div class='msg-bot'>{card_html}</div>"})
         except Exception as e:
-            err_msg = f"❌ 오류: {e}"
-            st.error(err_msg)
-            st.session_state.messages.append({"role": "assistant", "content": err_msg})
-
-    st.session_state.processing = False
+            st.error(e)
+            st.session_state.messages.append({"role":"assistant","content":str(e)})
+    st.session_state.processing=False
 
 # ---------------------------
 # 푸터
@@ -314,3 +291,4 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
+
