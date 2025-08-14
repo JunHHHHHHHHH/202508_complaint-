@@ -27,10 +27,9 @@ def init_session_state():
             st.session_state[k] = v
 
 
-# ===== 2. 메인 실행 =====
+# ===== 2. 메인 =====
 def main():
     init_session_state()
-
     st.set_page_config(
         page_title="🏛️ 곡성군 AI 민원상담봇",
         page_icon="🏛️",
@@ -38,7 +37,7 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # ===== 다크모드 + 모바일 최적화 스타일 =====
+    # 다크 모드 + 모바일 스타일
     st.markdown("""
     <style>
         :root { color-scheme: dark; }
@@ -61,7 +60,6 @@ def main():
             font-size: 0.8em; color: #aaa; border-top: 1px solid #333;
             margin-top: 1.5rem;
         }
-        /* 모바일 최적화 */
         @media (max-width: 768px) {
             .main-header h2 { font-size: 1.2em; }
             .main-header p { font-size: 0.8em; }
@@ -71,7 +69,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # ===== 헤더 =====
+    # 헤더
     st.markdown("""
     <div class="main-header">
         <h2>🏛️ 곡성군 AI 민원상담봇</h2>
@@ -101,10 +99,10 @@ def setup_sidebar():
     st.sidebar.subheader("빠른 질문")
     quick_qs = [
         "여권을 발급 받고 싶어요",
-        "정보공개 청구 절차를 알고 싶어요",
-        "인감증명서를 발급 받고 싶어요",
-        "주민등록등본 발급절차를 알고 싶어요",
-        "건축허가 신청 절차를 알고 싶어요"
+        "정보공개 청구 시 필요한 서류는?",
+        "인감증명서 발급에 필요한 서류는?",
+        "주민등록등본 발급에 필요한 서류는?",
+        "건축허가 신청 시 필요한 서류는?"
     ]
     for q in quick_qs:
         if st.sidebar.button(q, key=f"btn_{q}"):
@@ -128,7 +126,7 @@ def initialize_system():
 
     file_hash = str(hash(open(pdf_path, "rb").read()))
     if not st.session_state.rag_chain or st.session_state.file_hash != file_hash:
-        with st.spinner("📄 민원편람(2025) 문서 분석 중..."):
+        with st.spinner("📄 문서 분석 중..."):
             rag_chain, retriever, _ = initialize_rag_chain(
                 st.session_state.api_key, [pdf_path], ["곡성군 민원편람 2025"]
             )
@@ -159,19 +157,20 @@ def display_chat_interface():
     if st.session_state.selected_question and not st.session_state.processing:
         q = st.session_state.selected_question
         st.session_state.selected_question = None
-        process_question_streaming(q)
+        process_question_typing(q)
 
     if not st.session_state.processing:
         if prompt := st.chat_input("✍️ 민원업무 질문을 입력하세요..."):
-            process_question_streaming(prompt)
+            process_question_typing(prompt)
 
 
-# ===== 6. 순차 출력 질문 처리 =====
-def process_question_streaming(prompt):
+# ===== 6. 타자기 스타일 순차 출력 =====
+def process_question_typing(prompt, delay=0.02):
+    """LLM 답변을 한 글자씩 순차적으로 출력"""
     if st.session_state.processing:
         return
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and \
-       st.session_state.messages[-1]["content"] == prompt:
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" \
+       and st.session_state.messages[-1]["content"] == prompt:
         return
 
     st.session_state.processing = True
@@ -184,13 +183,15 @@ def process_question_streaming(prompt):
     with st.chat_message("assistant"):
         try:
             with st.spinner("🤖 답변 생성 중..."):
-                start = time.time()
+                start_time = time.time()
 
-                # retriever로 문서 검색
+                # 문서 검색
                 docs = st.session_state.retriever.get_relevant_documents(prompt)
-                context = "\n\n".join([f"[출처: {d.metadata.get('source_info','?')}] {d.page_content}" for d in docs])
+                context = "\n\n".join(
+                    [f"[출처: {d.metadata.get('source_info','?')}] {d.page_content}" for d in docs]
+                )
 
-                # LLM 스트리밍 준비
+                # LLM 준비 (스트리밍)
                 llm = ChatOpenAI(
                     model="gpt-4o-mini",
                     temperature=0,
@@ -199,10 +200,10 @@ def process_question_streaming(prompt):
                     streaming=True
                 )
 
-                # 프롬프트 구성
-                final_prompt = f"""
-당신은 곡성군 민원 상담 전문가입니다. 곡성군 민원편람을 바탕으로 다음 질문에 답해주세요.
-출처와 관련 서식이 있다면 같이 안내하세요.
+                prompt_text = f"""
+당신은 곡성군 민원 상담 전문가입니다.
+곡성군 민원편람을 기반으로 정확하고 친절하게 답변하세요.
+가능하면 관련 서식명도 안내해주세요.
 
 문맥:
 {context}
@@ -213,16 +214,17 @@ def process_question_streaming(prompt):
 답변:
 """
 
-                # 스트리밍 출력
-                response_container = st.empty()
+                container = st.empty()
                 full_text = ""
-                for chunk in llm.stream(final_prompt):
+                for chunk in llm.stream(prompt_text):
                     token = chunk.content if hasattr(chunk, "content") else str(chunk)
                     full_text += token
-                    response_container.markdown(full_text)
+                    container.markdown(full_text)
+                    time.sleep(delay)  # 타자 속도 조절
 
-                elapsed = round(time.time() - start, 2)
+                elapsed = round(time.time() - start_time, 2)
                 full_text += f"\n\n_⏱ {elapsed}초_"
+                container.markdown(full_text)
                 st.session_state.messages.append({"role": "assistant", "content": full_text})
 
         except Exception as e:
@@ -245,6 +247,4 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
-
-
 
