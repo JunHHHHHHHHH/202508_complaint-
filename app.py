@@ -3,104 +3,10 @@ import streamlit as st
 import os
 import time
 import uuid
-from rag_logic import initialize_rag_chain
-from langchain_openai import ChatOpenAI
-
-
-# ===== 1. 세션 상태 초기화 =====
-def init_session_state():
-    defaults = {
-        "messages": [],
-        "rag_chain": None,
-        "retriever": None,
-        "api_key": None,
-        "file_hash": None,
-        "file_names": [],
-        "chat_id": str(uuid.uuid4()),
-        "question_count": 0,
-        "processing": False,
-        "selected_question": None,
-        "last_clicked_question": None
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-
-# ===== 2. 메인 =====
-def main():
-    init_session_state()
-    st.set_page_config(
-        page_title="🏛️ 곡성군 AI 민원상담봇",
-        page_icon="🏛️",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    # 다크 모드 + 모바일 스타일
-    st.markdown("""
-    <style>
-        :root { color-scheme: dark; }
-        body, .stApp { background-color: #121212; color: #fff; }
-        .main-header {
-            background: linear-gradient(90deg, #222 0%, #444 100%);
-            padding: 1.2rem; border-radius: 10px;
-            text-align: center; margin-bottom: 1rem;
-        }
-        .main-header h2 { margin: 0; color: #fff; }
-        .main-header p { margin: 0; font-size: 0.9em; color: #bbb; }
-        .metric-card {
-            background: #1e1e1e; color: #eee;
-            padding: 1rem; border-radius: 8px;
-            border-left: 4px solid #667eea; margin-bottom: 1rem;
-            font-size: 0.95em;
-        }
-        .footer {
-            padding: 0.8rem; text-align: center;
-            font-size: 0.8em; color: #aaa; border-top: 1px solid #333;
-            margin-top: 1.5rem;
-        }
-        @media (max-width: 768px) {
-            .main-header h2 { font-size: 1.2em; }
-            .main-header p { font-size: 0.8em; }
-            .metric-card { font-size: 0.85em; padding: 0.8rem; }
-            .footer { font-size: 0.7em; padding: 0.5rem; }
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 헤더
-    st.markdown("""
-    <div class="main-header">
-        <h2>🏛️ 곡성군 AI 민원상담봇</h2>
-        <p>곡성군 민원편람 기반 AI 상담 서비스</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    setup_sidebar()
-
-    if not st.session_state.api_key:
-        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
-        st.stop()
-
-    initialize_system()
-    display_chat_interface()
-    display_footer()
-
-
-# ===== 3. 사이드바 =====
-def setup_sidebar():
-    st.sidebar.title("API 설정")
-    key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
-    if key:
-        st.session_state.api_key = key
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("빠른 질문")
-    quick_qs = [
-        "여권을 발급 받고 싶어요",
-        "주민등록등본을 발급 받고 싶어요",
-        "인감증명서를 발급 받고 싶어요",
+from rag_logic import (
+    prepare_vectorstore,        # 벡터스토어 준비(저장/로드, 해시 비교)
+    build_retriever,            # retriever 생성
+    build_streaming_l요",
         "정보공개를 청구하고 싶어요",
         "건축허가 신청을 하고 싶어요"
     ]
@@ -112,28 +18,32 @@ def setup_sidebar():
 
     st.sidebar.markdown("---")
     if st.sidebar.button("🗑️ 대화 초기화"):
-        st.session_state.clear()
-        init_session_state()
+        st.session_state.messages.clear()
+        st.session_state.question_count = 0
+        st.session_state.selected_question = None
+        st.session_state.last_clicked_question = None
         st.experimental_rerun()
 
 
-# ===== 4. 시스템 초기화 =====
+# ===== 4. 시스템 초기화 (벡터DB 저장/로드) =====
 def initialize_system():
-    pdf_path = "minweonpyeonram-2025.pdf"
+    pdf_path = st.session_state.pdf_path
+    vector_dir = st.session_state.vector_dir
+
     if not os.path.exists(pdf_path):
         st.error("❌ 'minweonpyeonram-2025.pdf' 파일이 없습니다.")
         st.stop()
 
-    file_hash = str(hash(open(pdf_path, "rb").read()))
-    if not st.session_state.rag_chain or st.session_state.file_hash != file_hash:
-        with st.spinner("📄 곡성군 민원편람(2025) 문서 분석 중..."):
-            rag_chain, retriever, _ = initialize_rag_chain(
-                st.session_state.api_key, [pdf_path], ["곡성군 민원편람 2025"]
+    if not st.session_state.index_ready:
+        with st.spinner("📄 인덱스 준비 중입니다... (최초 1회는 시간이 소요될 수 있어요)"):
+            vectorstore = prepare_vectorstore(
+                openai_api_key=st.session_state.api_key,
+                pdf_paths=[pdf_path],
+                file_names=st.session_state.file_names,
+                vector_dir=vector_dir
             )
-            st.session_state.rag_chain = rag_chain
-            st.session_state.retriever = retriever
-            st.session_state.file_hash = file_hash
-            st.session_state.file_names = ["곡성군 민원편람 2025"]
+            st.session_state.retriever = build_retriever(vectorstore, k=8)
+            st.session_state.index_ready = True
 
 
 # ===== 5. 채팅 인터페이스 =====
@@ -164,9 +74,8 @@ def display_chat_interface():
             process_question_typing(prompt)
 
 
-# ===== 6. 타자기 스타일 순차 출력 =====
+# ===== 6. 타자기 스타일 순차 출력 + 출처 강화 + 별지서식 =====
 def process_question_typing(prompt, delay=0.02):
-    """LLM 답변을 한 글자씩 순차적으로 출력"""
     if st.session_state.processing:
         return
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" \
@@ -185,44 +94,43 @@ def process_question_typing(prompt, delay=0.02):
             with st.spinner("🤖 답변 생성 중..."):
                 start_time = time.time()
 
-                # 문서 검색
-                docs = st.session_state.retriever.get_relevant_documents(prompt)
-                context = "\n\n".join(
-                    [f"[출처: {d.metadata.get('source_info','?')}] {d.page_content}" for d in docs]
+                # 컨텍스트/출처/서식 추출
+                context_text, sources_list, annex_forms = make_context_and_sources(
+                    st.session_state.retriever, prompt
                 )
 
-                # LLM 준비 (스트리밍)
-                llm = ChatOpenAI(
+                # 스트리밍 LLM
+                llm = build_streaming_llm(
                     model="gpt-4o-mini",
-                    temperature=0,
                     openai_api_key=st.session_state.api_key,
                     max_tokens=800,
-                    streaming=True
+                    temperature=0
                 )
 
-                prompt_text = f"""
-당신은 곡성군의 민원 상담 전문가입니다.
-곡성군 민원편람을 기반으로 정확하고 친절하게 그리고 자세히 답변하세요.
-관련된 별지 서식도 함께 알려주세요. 
-
-문맥:
-{context}
-
-질문:
-{prompt}
-
-답변:
-"""
+                final_prompt = build_final_prompt(
+                    context=context_text,
+                    question=prompt,
+                    annex_forms=annex_forms
+                )
 
                 container = st.empty()
                 full_text = ""
-                for chunk in llm.stream(prompt_text):
-                    token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                for chunk in llm.stream(final_prompt):
+                    token = getattr(chunk, "content", None)
+                    if token is None:
+                        token = str(chunk)
                     full_text += token
                     container.markdown(full_text)
-                    time.sleep(delay)  # 타자 속도 조절
+                    time.sleep(delay)
 
                 elapsed = round(time.time() - start_time, 2)
+
+                # 근거 출처 모아보기 섹션 추가
+                if sources_list:
+                    full_text += "\n\n---\n근거 출처 모아보기\n"
+                    for i, s in enumerate(sources_list, 1):
+                        full_text += f"- {i}. {s}\n"
+
                 full_text += f"\n\n_⏱ {elapsed}초_"
                 container.markdown(full_text)
                 st.session_state.messages.append({"role": "assistant", "content": full_text})
@@ -247,6 +155,5 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
-
 
 
