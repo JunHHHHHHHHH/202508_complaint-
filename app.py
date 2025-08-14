@@ -4,12 +4,12 @@ import os
 import time
 import uuid
 from rag_logic import (
-    prepare_vectorstore,        # 벡터스토어 준비(저장/로드, 해시 비교)
+    prepare_vectorstore,        # 벡터스토어 준비
     build_retriever,            # retriever 생성
-    build_streaming_l요",
-        "정보공개를 청구하고 싶어요",
-        "건축허가 신청을 하고 싶어요"
-    ]
+    build_streaming_llm,        # 스트리밍 LLM 생성
+    make_context_and_sources,   # 질문→컨텍스트/출처/서식 추출
+    build_final_prompt          # 최종 프롬프트
+)
     for q in quick_qs:
         if st.sidebar.button(q, key=f"btn_{q}"):
             if not st.session_state.processing and st.session_state.last_clicked_question != q:
@@ -155,5 +155,6 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
 
