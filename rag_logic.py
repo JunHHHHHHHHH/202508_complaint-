@@ -170,7 +170,6 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 
 [문맥]
 {context}
-{}
 {forms_text}
 
 [질문]
@@ -178,6 +177,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 
 [답변]
 """
+
 
 
 
