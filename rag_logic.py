@@ -1,262 +1,150 @@
 # rag_logic.py
+
 import os
-import re
+import hashlib
+import json
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
+import streamlit as st
+from dotenv import load_dotenv
 
-def extract_issue_number(filename):
-    """파일명에서 호수를 추출하는 함수"""
-    pattern = r'제(\d+)호'
-    match = re.search(pattern, filename)
-    if match:
-        return match.group(1)
-    return "Unknown"
+# --- 설정값 ---
+PDF_PATH = "minweonpyeonram-2025.pdf"
+FAISS_INDEX_PATH = "./faiss_index_minweon" # 벡터 DB를 저장할 폴더
+HASH_FILE_PATH = os.path.join(FAISS_INDEX_PATH, "pdf_hash.json") # PDF 파일 변경 감지를 위한 해시 저장 파일
 
-def initialize_rag_chain(openai_api_key, pdf_paths, file_names=None):
-    """OpenAI API 키와 PDF 파일 경로 리스트를 받아 RAG 체인을 초기화합니다."""
-    print("--- 곡성군 민원편람 RAG 파이프라인 초기화 시작 ---")
-    
-    # API 키 유효성 검사
-    if not openai_api_key or not openai_api_key.startswith('sk-'):
-        raise ValueError("유효한 OpenAI API 키를 입력해주세요.")
+def get_pdf_hash(file_path):
+    """PDF 파일의 해시(SHA-256) 값을 계산하여 파일 변경 여부를 확인합니다."""
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
 
-    all_docs = []
-    
-    # 모든 PDF 파일을 순회하며 문서 로드
-    for i, pdf_path in enumerate(pdf_paths):
-        if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"PDF 파일을 찾을 수 없습니다: {pdf_path}")
+# Streamlit의 캐시 기능을 사용해 벡터 DB와 RAG 체인을 한번만 로드합니다.
+# 이렇게 하면 앱을 새로고침해도 매번 새로 만들지 않아 매우 빠릅니다.
+@st.cache_resource(show_spinner="AI 민원 상담봇을 준비 중입니다...")
+def initialize_rag_chain():
+    """
+    RAG 체인을 초기화하는 함수.
+    1. PDF 파일의 변경 여부를 확인합니다.
+    2. 변경되지 않았으면 저장된 벡터 DB를 로드합니다.
+    3. 변경되었거나 새로 만들 경우, PDF를 읽어 벡터 DB를 생성하고 저장합니다.
+    4. 어르신 눈높이에 맞춘 프롬프트와 함께 RAG 체인을 생성하여 반환합니다.
+    """
+    load_dotenv()
+    if not os.getenv("OPENAI_API_KEY"):
+        st.error("OpenAI API 키가 설정되지 않았습니다. .env 파일에 키를 추가해주세요.")
+        return None, None
 
-        try:
-            loader = PyPDFLoader(pdf_path)
-            docs = loader.load()
-            
-            # 파일명에서 호수 추출
-            if file_names and i < len(file_names):
-                filename = file_names[i]
-                issue_number = extract_issue_number(filename)
-            else:
-                filename = f"Document_{i+1}"
-                issue_number = str(i+1)
+    # PDF 파일 존재 여부 확인
+    if not os.path.exists(PDF_PATH):
+        st.error(f"'{PDF_PATH}' 파일을 찾을 수 없습니다. 프로젝트 폴더에 PDF 파일을 넣어주세요.")
+        return None, None
 
-            # 각 문서에 풍부한 메타데이터 추가
-            for doc_idx, doc in enumerate(docs):
-                doc.metadata['file_index'] = i
-                doc.metadata['document_id'] = i
-                doc.metadata['file_name'] = filename
-                doc.metadata['document_name'] = filename
-                
-                # 페이지 번호 정보 추가
-                original_page = doc.metadata.get('page', doc_idx)
-                page_num = original_page + 1
-                doc.metadata['page_number'] = page_num
-                
-                # 정확한 출처 정보 생성
-                base_filename = os.path.splitext(filename)[0]
-                doc.metadata['source_info'] = f"{base_filename}의 {page_num}p"
-                
-                print(f"메타데이터 추가: {doc.metadata['source_info']}")
+    # 벡터 DB 저장 폴더 생성
+    os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
 
-            all_docs.extend(docs)
-            print(f"✅ 파일 {i+1} 로드 완료 - {len(docs)}페이지")
-            
-        except Exception as e:
-            print(f"❌ 파일 {i+1} 로드 실패: {str(e)}")
-            raise e
+    current_pdf_hash = get_pdf_hash(PDF_PATH)
+    stored_hash = None
 
-    print(f"✅ [1/5] 전체 문서 로드 완료 - 총 {len(all_docs)}페이지")
+    # 저장된 해시 값 읽기
+    if os.path.exists(HASH_FILE_PATH):
+        with open(HASH_FILE_PATH, 'r') as f:
+            stored_hash = json.load(f).get('hash')
 
-    # 문서가 비어있는지 확인
-    if not all_docs:
-        raise ValueError("PDF 문서들이 비어있거나 텍스트를 추출할 수 없습니다.")
+    embeddings = OpenAIEmbeddings()
 
-    # 문서 내용 길이 확인
-    total_text = ""
-    for doc in all_docs:
-        total_text += doc.page_content
-    
-    print(f"전체 텍스트 길이: {len(total_text)} 문자")
-    
-    if len(total_text.strip()) < 100:
-        raise ValueError("문서 내용이 너무 짧습니다. 스캔된 이미지 PDF일 가능성이 있습니다.")
-
-    try:
-        # 2. 문서 분할 - 토큰 제한을 고려한 최적화된 크기 (수정됨)
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,  # 800 -> 500으로 축소
-            chunk_overlap=50,  # 100 -> 50으로 축소
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
-            length_function=len
+    # PDF가 변경되지 않았다면 기존 벡터 DB 로드
+    if os.path.exists(os.path.join(FAISS_INDEX_PATH, "index.faiss")) and current_pdf_hash == stored_hash:
+        st.info("기존에 저장된 민원편람 데이터를 불러옵니다.")
+        vectorstore = FAISS.load_local(
+            FAISS_INDEX_PATH,
+            embeddings,
+            allow_dangerous_deserialization=True  # 사용자 신뢰 기반 로드 허용
         )
+    # PDF가 변경되었거나 처음 실행하는 경우 새로 생성
+    else:
+        st.info("새로운 민원편람 데이터를 AI가 읽고 학습합니다. 잠시만 기다려주세요...")
+        # 1. PDF 로드 및 메타데이터 보강
+        loader = PyPDFLoader(PDF_PATH)
+        docs = loader.load()
+        for doc in docs:
+            page_num = doc.metadata.get('page', 0) + 1
+            file_name = os.path.basename(PDF_PATH)
+            doc.metadata['source_info'] = f"{file_name}의 {page_num}페이지"
 
-        splits = text_splitter.split_documents(all_docs)
-        
-        # 분할된 청크의 메타데이터 확인 및 보정
-        for split in splits:
-            if 'source_info' not in split.metadata:
-                file_name = split.metadata.get('file_name', 'Unknown')
-                base_filename = os.path.splitext(file_name)[0]
-                page_num = split.metadata.get('page_number', 'Unknown')
-                split.metadata['source_info'] = f"{base_filename}의 {page_num}p"
-            
-            # 청크 내용 미리보기 추가
-            split.metadata['content_preview'] = split.page_content[:100] + "..." if len(split.page_content) > 100 else split.page_content
+        # 2. 텍스트 분할
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        splits = text_splitter.split_documents(docs)
 
-        print(f"✅ [2/5] 문서 분할 완료 - 총 {len(splits)}개 청크")
-        
-        if not splits:
-            raise ValueError("문서 분할 결과가 비어있습니다.")
-
-        # 3. OpenAI 임베딩 및 벡터 DB 설정
-        embeddings = OpenAIEmbeddings(
-            openai_api_key=openai_api_key,
-            model="text-embedding-3-small"
-        )
-        
+        # 3. 임베딩 및 벡터 DB 생성
         vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
-        print("✅ [3/5] FAISS 벡터 DB 생성 완료")
 
-        # 4. 검색기 생성 - 토큰 제한을 고려한 검색 설정 (수정됨)
-        retriever = vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 8}  # 12 -> 8로 축소
-        )
-        print("✅ [4/5] 검색기 생성 완료")
+        # 4. 벡터 DB와 해시 값 저장
+        vectorstore.save_local(FAISS_INDEX_PATH)
+        with open(HASH_FILE_PATH, 'w') as f:
+            json.dump({'hash': current_pdf_hash}, f)
+        st.success("AI가 민원편람 학습을 완료했습니다!")
 
-        # 5. 민원상담 전문 프롬프트 설정 (서식 안내 기능 추가)
-        template = """당신은 곡성군 민원 상담 전문가입니다. 곡성군 민원편람을 바탕으로 정확하고 친절하게 답변해주세요.
+    # 검색기(Retriever) 생성
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
-**답변 지침:**
-1. 민원업무명, 처리기간, 구비서류, 수수료를 명확히 안내하세요
-2. 처리 절차를 단계별로 설명하세요
-3. 신청방법(방문, 온라인, 전화 등)을 구체적으로 안내하세요
-4. 관련 법령과 조례를 정확히 인용하세요
-5. 접수처와 담당부서를 명시하세요
-6. 해당 민원업무와 관련된 서식이 있다면 서식명을 함께 안내하세요 (예: "○○ 신청서", "○○ 동의서" 등)
-7. 두괄식으로 답변하되, 상세한 정보를 포함하세요
-8. 출처를 반드시 명시하세요
+    # AI에게 역할을 부여하는 프롬프트 (어르신 눈높이 맞춤)
+    template = """
+    당신은 전라남도 곡성군의 민원 업무를 안내하는 친절한 AI 상담원입니다.
+    사용자의 질문에 대해 아래의 '참고 자료'를 바탕으로, 70대 이상 어르신께서 이해하기 쉽도록 답변해야 합니다.
 
-**문맥 정보:**
-{context}
+    반드시 다음 규칙을 지켜주세요:
+    1. 답변은 항상 "어르신, 문의하신 내용에 대해 알려드릴게요." 와 같은 친절한 인사로 시작하세요.
+    2. 전문 용어는 최대한 피하고, 쉬운 단어로 풀어서 설명해주세요.
+    3. 답변은 아래의 '답변 형식'에 맞춰, 각 항목을 굵은 글씨와 번호로 명확하게 구분해서 알려주세요.
+    4. 각 항목의 내용 끝에는 반드시 정보의 출처를 정확히 명시해야 합니다. 예: [출처: minweonpyeonram-2025.pdf의 15페이지]
+    5. 참고 자료에 내용이 없으면 "죄송합니다, 어르신. 해당 내용은 민원편람에서 찾을 수 없었습니다. 곡성군청 민원실(061-360-8262)로 문의하시면 더 정확한 안내를 받으실 수 있습니다." 라고 답변해주세요.
 
-**질문:** {question}
+    ---
+    [답변 형식]
 
-**답변:**"""
+    ## **어떤 민원인가요?**
+    - [민원 업무에 대한 쉽고 간단한 설명] [출처]
 
-        prompt = ChatPromptTemplate.from_template(template)
-        
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            openai_api_key=openai_api_key,
-            max_tokens=1000,  # 1500 -> 1000으로 축소
-            timeout=60
-        )
+    ### **1. 무엇을 준비해야 하나요? (구비서류)**
+    - [필요한 서류 목록] [출처]
 
-        def format_docs(docs):
-            """문서들을 출처 정보와 함께 포맷팅"""
-            if not docs:
-                return "검색된 문서가 없습니다."
-            
-            formatted = []
-            for i, doc in enumerate(docs):
-                source = doc.metadata.get('source_info', 'Unknown')
-                content = doc.page_content
-                print(f"포맷팅 중인 문서 {i+1}: {source}")
-                formatted.append(f"[출처: {source}]\n{content}")
-            
-            return "\n\n".join(formatted)
+    ### **2. 어디로 가야 하나요? (신청장소/담당부서)**
+    - [신청 장소와 담당 부서 이름] [출처]
 
-        rag_chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
+    ### **3. 돈은 얼마나 드나요? (수수료)**
+    - [수수료 금액, 면제 대상 등] [출처]
 
-        print("✅ [5/5] 곡성군 민원편람 RAG 체인 생성 완료")
-        return rag_chain, retriever, openai_api_key
+    ### **4. 처리하는 데 얼마나 걸리나요? (처리기간)**
+    - [처리 기간] [출처]
 
-    except Exception as e:
-        print(f"❌ RAG 초기화 중 오류 발생: {str(e)}")
-        raise e
+    ---
+    [참고 자료]
+    {context}
+    ---
+    [사용자 질문]
+    {question}
+    """
+    prompt = ChatPromptTemplate.from_template(template)
 
-def get_answer(chain, retriever, question, openai_api_key):
-    """RAG 체인과 검색기를 이용하여 민원 상담 답변을 생성합니다."""
-    try:
-        print(f"민원 질문: {question}")
-        
-        # 검색 수행
-        docs = retriever.get_relevant_documents(question)
-        print(f"검색된 문서 개수: {len(docs)}")
-        
-        if not docs:
-            return "해당 문서들에는 관련 정보가 포함되어 있지 않습니다."
+    # LLM 모델 설정
+    llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
 
-        # 검색된 문서들 확인
-        valid_docs = []
-        for i, doc in enumerate(docs):
-            source_info = doc.metadata.get('source_info', 'Unknown')
-            print(f"문서 {i+1} 출처: {source_info}")
-            print(f"내용 미리보기: {doc.page_content[:100]}...")
-            valid_docs.append(doc)
+    # RAG 체인 구성
+    rag_chain = (
+        {"context": retriever, "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
 
-        if not valid_docs:
-            return "문서에서 관련 정보를 찾을 수 없습니다."
-
-        print(f"유효한 문서 개수: {len(valid_docs)}")
-
-        # 상위 문서들로 컨텍스트 생성 (수정됨 - 토큰 수 축소)
-        def format_docs_for_context(docs):
-            formatted = []
-            for doc in docs:
-                source = doc.metadata.get('source_info', 'Unknown')
-                content = doc.page_content
-                formatted.append(f"[출처: {source}]\n{content}")
-            return "\n\n".join(formatted)
-
-        context = format_docs_for_context(valid_docs[:6])  # 10 -> 6으로 축소
-
-        # 민원 상담용 프롬프트 구성 (서식 안내 기능 추가)
-        prompt_text = f"""당신은 곡성군 민원 상담 전문가입니다. 곡성군 민원편람을 바탕으로 정확하고 친절하게 답변해주세요.
-
-**답변 지침:**
-1. 민원업무명, 처리기간, 구비서류, 수수료를 명확히 안내하세요
-2. 처리 절차를 단계별로 설명하세요
-3. 신청방법(방문, 온라인, 전화 등)을 구체적으로 안내하세요
-4. 관련 법령과 조례를 정확히 인용하세요
-5. 접수처와 담당부서를 명시하세요
-6. 해당 민원업무와 관련된 서식이 있다면 서식명을 함께 안내하세요 (예: "○○ 신청서", "○○ 동의서" 등)
-7. 두괄식으로 답변하되, 상세한 정보를 포함하세요
-8. 출처를 반드시 명시하세요
-
-**문맥 정보:**
-{context}
-
-**질문:** {question}
-
-**답변:**"""
-
-        # LLM 직접 호출
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            openai_api_key=openai_api_key,
-            max_tokens=1000,  # 1500 -> 1000으로 축소
-            timeout=60
-        )
-
-        response = llm.invoke(prompt_text)
-        return response.content
-
-    except Exception as e:
-        print(f"상세 오류 정보: {str(e)}")
-        return f"답변 생성 중 오류가 발생했습니다: {str(e)}"
+    return rag_chain
 
 
