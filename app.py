@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import time
+import re
 from rag_logic import (
     prepare_vectorstore,
     build_retriever,
@@ -126,21 +127,15 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # 헤더(Hero) 표시
     render_hero()
-
-    # 사이드바
     setup_sidebar()
 
     if not st.session_state.api_key:
         st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
         st.stop()
 
-    # 시스템 초기화
     initialize_system()
-    # 채팅 인터페이스
     display_chat_interface()
-    # 푸터
     display_footer()
 
 # ---------------------------
@@ -220,7 +215,7 @@ def display_chat_interface():
             process_question_typing(prompt, st.session_state.typing_delay)
 
 # ---------------------------
-# 질문 입력 처리(타자 효과)
+# 질문 입력 처리(타자 효과 + 단락간 한 줄 띄기 기능)
 # ---------------------------
 def process_question_typing(prompt, delay=0.02):
     if st.session_state.processing:
@@ -266,7 +261,10 @@ def process_question_typing(prompt, delay=0.02):
                     container.markdown(full_text)
                     time.sleep(delay)
 
-                st.session_state.messages.append({"role": "assistant", "content": full_text})
+                # 🚩 자동 한 줄 띄우기 처리 (1번, 2번 처럼 단락 나눔)
+                formatted_text = re.sub(r"(?m)(\d+\.)", r"\n\1", full_text).strip()
+
+                st.session_state.messages.append({"role": "assistant", "content": formatted_text})
 
         except Exception as e:
             err_msg = f"❌ 오류: {e}"
@@ -291,6 +289,5 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
-
 
 
