@@ -152,8 +152,8 @@ def setup_sidebar():
     quick_qs = [
         "여권을 발급 받고 싶어요",
         "전입신고 방법을 알고 싶어요",
-        "인감증명서 발급 받고 싶어요",
-        "정보공개를 청구방법을 알고 싶어요",
+        "인감증명서를 발급 받고 싶어요",
+        "정보공개 청구방법을 알고 싶어요",
         "건축허가 신청 절차를 알고 싶어요"
     ]
     for q in quick_qs:
@@ -262,8 +262,8 @@ def process_question_typing(prompt, delay=0.02):
                     time.sleep(delay)
 
                 # 🚩 자동 한 줄 띄우기 처리 (1번, 2번 처럼 단락 나눔)
-                formatted_text = re.sub(r"\n*(\d+\.)", r"\n\n\1", full_text).strip()
-                st.session_state.messages.append({"role": "assistant", "content": formatted_text})
+                # formatted_text = re.sub(r"\n*(\d+\.)", r"\n\n\1", full_text).strip()
+                # st.session_state.messages.append({"role": "assistant", "content": formatted_text})
                 
         except Exception as e:
             err_msg = f"❌ 오류: {e}"
@@ -288,6 +288,7 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
+
 
 
 
