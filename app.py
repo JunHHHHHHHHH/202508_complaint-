@@ -7,7 +7,7 @@ from rag_logic import (
     build_retriever,            # 검색기 생성
     build_streaming_llm,        # 스트리밍 LLM 생성
     make_context_and_sources,   # 질문→컨텍스트/출처/서식 추출
-    build_final_prompt          # 최종 프롬프트 생성
+    build_final_prompt          # 프롬프트 생성
 )
 
 
@@ -67,8 +67,6 @@ def main():
         @media (max-width: 768px) {
             .main-header h2 { font-size: 1.2em; }
             .main-header p { font-size: 0.8em; }
-            .metric-card { font-size: 0.85em; padding: 0.8rem; }
-            .footer { font-size: 0.7em; padding: 0.5rem; }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -77,7 +75,7 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h2>🏛️ 곡성군 AI 민원상담봇</h2>
-        <p>곡성군 민원편람 기반 AI 상담 서비스 (FAISS 인덱스 저장/출처 강화/별지서식 안내)</p>
+        <p>곡성군 민원편람 기반 AI 상담 서비스</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -92,7 +90,7 @@ def main():
     display_footer()
 
 
-# === 3. 사이드바 설정 ===
+# === 3. 사이드바 ===
 def setup_sidebar():
     st.sidebar.title("API 설정")
     key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
@@ -123,7 +121,7 @@ def setup_sidebar():
         st.experimental_rerun()
 
 
-# === 4. 시스템 초기화 (FAISS 저장/로드) ===
+# === 4. 시스템 초기화 ===
 def initialize_system():
     pdf_path = st.session_state.pdf_path
     vector_dir = st.session_state.vector_dir
@@ -133,7 +131,7 @@ def initialize_system():
         st.stop()
 
     if not st.session_state.index_ready:
-        with st.spinner("📄 인덱스를 준비하는 중입니다..."):
+        with st.spinner("📄 인덱스 준비 중..."):
             vectorstore = prepare_vectorstore(
                 openai_api_key=st.session_state.api_key,
                 pdf_paths=[pdf_path],
@@ -147,41 +145,30 @@ def initialize_system():
 # === 5. 채팅 인터페이스 ===
 def display_chat_interface():
     st.markdown(
-        f"<div class='metric-card'>📄 문서: <b>{', '.join(st.session_state.file_names)}</b> "
-        f"| 💬 질문 수: {st.session_state.question_count}</div>",
+        f"<div class='metric-card'>📄 문서: <b>{', '.join(st.session_state.file_names)}</b> | 💬 질문 수: {st.session_state.question_count}</div>",
         unsafe_allow_html=True
     )
 
-    with st.expander("사용 안내", expanded=False):
-        st.markdown("""
-        • 사이드바에서 빠른 질문 클릭  
-        • 하단 채팅창에 직접 입력  
-        • 예시: "여권을 발급 받고 싶어요", "부동산 거래 시 신고방법을 알고 싶어요"
-        """)
-
-    # 이전 대화 표시
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    # 빠른 질문 처리
     if st.session_state.selected_question and not st.session_state.processing:
         q = st.session_state.selected_question
         st.session_state.selected_question = None
         process_question_typing(q)
 
-    # 직접 질문 처리
     if not st.session_state.processing:
         if prompt := st.chat_input("✍️ 민원업무 질문을 입력하세요..."):
             process_question_typing(prompt)
 
 
-# === 6. 타자기 스타일 순차 출력 ===
+# === 6. 질문 처리 (타자기 스타일) ===
 def process_question_typing(prompt, delay=0.02):
     if st.session_state.processing:
         return
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" \
-       and st.session_state.messages[-1]["content"] == prompt:
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and \
+       st.session_state.messages[-1]["content"] == prompt:
         return
 
     st.session_state.processing = True
@@ -193,15 +180,14 @@ def process_question_typing(prompt, delay=0.02):
 
     with st.chat_message("assistant"):
         try:
+            from_html = st.empty()
             with st.spinner("🤖 답변 생성 중..."):
-                start_time = time.time()
-
-                # 검색 컨텍스트/출처/서식 추출
-                context_text, sources_list, annex_forms = make_context_and_sources(
+                # 컨텍스트/서식 추출
+                context_text, _, annex_forms = make_context_and_sources(
                     st.session_state.retriever, prompt
                 )
 
-                # 스트리밍 LLM
+                # LLM
                 llm = build_streaming_llm(
                     model="gpt-4o-mini",
                     openai_api_key=st.session_state.api_key,
@@ -215,31 +201,21 @@ def process_question_typing(prompt, delay=0.02):
                     annex_forms=annex_forms
                 )
 
-                container = st.empty()
                 full_text = ""
                 for chunk in llm.stream(final_prompt):
                     token = getattr(chunk, "content", None) or str(chunk)
                     full_text += token
-                    container.markdown(full_text)
+                    from_html.markdown(full_text)
                     time.sleep(delay)
 
-                elapsed = round(time.time() - start_time, 2)
-
-                # 근거 출처 모아보기
-                if sources_list:
-                    full_text += "\n\n---\n**근거 출처 모아보기**\n"
-                    for i, s in enumerate(sources_list, 1):
-                        full_text += f"- {i}. {s}\n"
-
-                full_text += f"\n\n_⏱ {elapsed}초_"
-                container.markdown(full_text)
-
+                # 메타데이터, 처리시간 제거 -> 그대로 저장
                 st.session_state.messages.append({"role": "assistant", "content": full_text})
 
         except Exception as e:
-            err = f"❌ 오류: {e}"
-            st.error(err)
-            st.session_state.messages.append({"role": "assistant", "content": err})
+            err_msg = f"❌ 오류: {e}"
+            st.error(err_msg)
+            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+
     st.session_state.processing = False
 
 
@@ -255,4 +231,5 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
