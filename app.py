@@ -1,4 +1,5 @@
 # app.py
+# app.py
 import streamlit as st
 import os
 
@@ -79,6 +80,9 @@ textarea, input, .stTextInput>div>div>input {
 </style>
 """
 
+# ---------------------------
+# 세션 초기화
+# ---------------------------
 def init_session_state():
     defaults = {
         "messages": [],
@@ -98,6 +102,9 @@ def init_session_state():
         if k not in st.session_state:
             st.session_state[k] = v
 
+# ---------------------------
+# 헤더(히어로 영역)
+# ---------------------------
 def render_hero():
     st.markdown(THEME_CSS, unsafe_allow_html=True)
     st.markdown(f"""
@@ -108,23 +115,15 @@ def render_hero():
     </div>
     """, unsafe_allow_html=True)
 
-setup_sidebar()
-
-    if not st.session_state.api_key:
-        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
-        st.stop()
-
-    initialize_system()
-    display_chat_interface()
-    display_footer()
-
-
+# ---------------------------
+# 사이드바 설정
+# ---------------------------
 def setup_sidebar():
     st.sidebar.title("API 설정")
     key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
     if key:
         st.session_state.api_key = key
-   
+
     st.sidebar.markdown("---")
     st.sidebar.subheader("빠른 질문")
     quick_qs = [
@@ -148,8 +147,22 @@ def setup_sidebar():
         st.session_state.last_clicked_question = None
         st.experimental_rerun()
 
+# ---------------------------
+# 검색기 보장 함수
+# ---------------------------
+def ensure_retriever():
+    if st.session_state["retriever"] is None:
+        try:
+            vs = prepare_vectorstore(st.session_state["vector_dir"], st.session_state["pdf_path"])
+            st.session_state["retriever"] = build_retriever(vs)
+            st.session_state["index_ready"] = True
+        except Exception as e:
+            return False, f"❌ 색인 생성 오류: {e}"
+    return True, None
 
-
+# ---------------------------
+# 질문 처리 함수
+# ---------------------------
 def answer_question(question: str):
     api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY")
     llm = build_streaming_llm(model="gpt-4o-mini", openai_api_key=api_key, max_tokens=800, temperature=0)
@@ -158,11 +171,14 @@ def answer_question(question: str):
     resp = llm.invoke(prompt)
     return resp.content, sources, annex
 
+# ---------------------------
+# 채팅 UI
+# ---------------------------
 def render_chat_ui():
     st.markdown('<div class="card"><h3>📝 민원 질문</h3>', unsafe_allow_html=True)
     col1, col2 = st.columns([4,1])
     with col1:
-        q = st.text_input("궁금하신 사항항을 입력하세요", label_visibility="collapsed")
+        q = st.text_input("궁금하신 사항을 입력하세요", label_visibility="collapsed")
     with col2:
         ask = st.button("바로 확인")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -185,27 +201,29 @@ def render_chat_ui():
                     st.markdown(f"- {a}")
         st.markdown('</div>', unsafe_allow_html=True)
 
+# ---------------------------
+# 메인 실행부
+# ---------------------------
 def main():
     init_session_state()
-    st.set_page_config(page_title="🏛️ 곡성군 AI 민원상담봇", page_icon="🏛️", layout="wide", initial_sidebar_state="collapsed")
-    with st.sidebar:
-        st.header("설정")
-        api = st.text_input("OpenAI API Key", type="password")
-        if api:
-            st.session_state["api_key"] = api
-        st.caption("PDF: minweonpyeonram-2025.pdf")
-        if st.button("색인 재생성"):
-            st.session_state["retriever"] = None
-            st.session_state["index_ready"] = False
-            st.success("다음 질문 시 자동 재색인합니다.")
+    st.set_page_config(
+        page_title="🏛️ 곡성군 AI 민원상담봇",
+        page_icon="🏛️",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+
+    setup_sidebar()
+
+    if not st.session_state.api_key:
+        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
+        st.stop()
+
     render_hero()
-    render_quick_pills()
     render_chat_ui()
     st.markdown('<div class="foot">© Gokseong-gun · 민원편람 기반 안내</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
-
 
 
