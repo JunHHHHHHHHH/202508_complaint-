@@ -30,7 +30,7 @@ def main():
     init_session_state()
     
     st.set_page_config(
-        page_title="🏛️ 곡성군 민원편람 AI 상담봇",
+        page_title="🏛️ 곡성군 AI민원상담봇",
         page_icon="🏛️",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -286,8 +286,8 @@ def main():
     # 메인 헤더
     st.markdown("""
     <div class="main-header fade-in-up">
-        <h1>🏛️ 곡성군 민원편람 AI 상담봇</h1>
-        <p>AI 기반 민원업무 처리기간, 구비서류, 처리흐름을 쉽고 빠르게 안내해드립니다</p>
+        <h1>🏛️ 곡성군 AI민원상담봇</h1>
+        <p>AI 기반 민원업무 구비서류, 처리기간, 처리흐름 을 쉽고 빠르게 안내해드립니다</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -627,5 +627,6 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
 
