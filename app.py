@@ -287,7 +287,7 @@ def main():
     st.markdown("""
     <div class="main-header fade-in-up">
         <h1>🏛️ 곡성군 AI민원상담봇</h1>
-        <p>AI 기반 민원업무 구비서류, 처리기간, 처리흐름 을 쉽고 빠르게 안내해드립니다</p>
+        <p>민원업무 관련 구비서류, 처리기간, 처리흐름 등을 AI가 쉽고 빠르게 안내해드립니다</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -303,17 +303,14 @@ def main():
     initialize_system()
 
     # 메인 탭 구성
-    tab1, tab2, tab3 = st.tabs(["💬 AI 상담", "📊 사용 통계", "ℹ️ 서비스 정보"])
+    tab1, tab2 = st.tabs(["💬 AI 상담", "📊 사용 통계"])
     
     with tab1:
         display_chat_interface()
     
     with tab2:
-        display_usage_stats()
+        display_usage_stats()    
     
-    with tab3:
-        display_service_info()
-
     # 푸터
     display_footer()
 
@@ -338,7 +335,7 @@ def setup_sidebar():
     st.sidebar.markdown("---")
     
     # 빠른 질문 템플릿
-    st.sidebar.title("🚀 주요 민원 질문")
+    st.sidebar.title("🚀 주요 민원을 클릭해보세요")
     
     quick_questions = [
         "여권 발급 절차는?",
@@ -582,37 +579,6 @@ def display_usage_stats():
         with col2:
             st.metric("부정 피드백", negative_feedback, delta=None)
 
-def display_service_info():
-    """서비스 정보를 표시합니다."""
-    st.subheader("ℹ️ 서비스 정보")
-    
-    st.markdown("""
-    <div class="insight-box">
-        <h4>🏛️ 곡성군 민원편람 AI 상담봇</h4>
-        <p><strong>버전:</strong> 2.0.0</p>
-        <p><strong>최종 업데이트:</strong> 2025년 8월</p>
-        <p><strong>지원 문서:</strong> 곡성군 민원편람 2025</p>
-        
-        <h4>🔧 주요 기능</h4>
-        <ul>
-            <li>민원업무 처리절차 안내</li>
-            <li>구비서류 및 서식 정보 제공</li>
-            <li>처리기간 및 수수료 안내</li>
-            <li>담당부서 및 연락처 정보</li>
-            <li>실시간 AI 기반 상담</li>
-        </ul>
-        
-        <h4>⚡ 기술 스택</h4>
-        <ul>
-            <li>Frontend: Streamlit</li>
-            <li>AI Model: GPT-4o-mini</li>
-            <li>Vector Database: FAISS</li>
-            <li>Embeddings: OpenAI text-embedding-3-small</li>
-            <li>Framework: LangChain</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
 def display_footer():
     """푸터를 표시합니다."""
     st.markdown("""
@@ -620,13 +586,13 @@ def display_footer():
         <h4>🏛️ 곡성군청</h4>
         <p>📞 대표전화: 061-360-0000 | 🌐 www.gokseong.go.kr</p>
         <p>📍 전라남도 곡성군 곡성읍 군청로 15</p>
-        <hr>
-        <small>⚠️ 본 서비스는 AI 기반 안내서비스로, 정확한 민원처리를 위해서는 담당부서에 직접 문의하시기 바랍니다.</small>
+        <hr>        
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
 
 
