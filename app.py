@@ -81,12 +81,18 @@ textarea, input, .stTextInput>div>div>input {
 
 def init_session_state():
     defaults = {
+        "messages": [],
         "api_key": None,
+        "question_count": 0,
+        "processing": False,
+        "selected_question": None,
+        "last_clicked_question": None,
         "vector_dir": "faiss_minweonpyeonram_2025",
         "pdf_path": "minweonpyeonram-2025.pdf",
         "index_ready": False,
         "retriever": None,
         "file_names": ["곡성군 민원편람 2025"],
+        "typing_delay": 0.02,  # 타자 속도
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -97,35 +103,52 @@ def render_hero():
     st.markdown(f"""
     <div class="hero">
       <div class="hero-eyebrow">🏛️ 곡성군 AI 민원상담봇</div>
-      <div class="hero-title">민원, 더 간결하게 읽고 빠르게 해결해요.</div>
-      <div class="hero-desc">곡성군 민원편람 기반으로 신뢰 가능한 안내를 전합니다.</div>
+      <div class="hero-title">민원, 더 간결하고 빠르게 해결해요.</div>
+      <div class="hero-desc">곡성군 민원편람 기반으로 답변 드립니다.</div>
     </div>
     """, unsafe_allow_html=True)
 
-def render_quick_pills():
-    st.markdown("""
-    <div>
-      <span class="pill">#민원신청</span>
-      <span class="pill">#제출서류</span>
-      <span class="pill">#수수료</span>
-      <span class="pill">#처리기간</span>
-      <span class="pill">#정부24</span>
-    </div>""", unsafe_allow_html=True)
+setup_sidebar()
 
-def ensure_retriever():
-    if st.session_state["retriever"] is None and not st.session_state["index_ready"]:
-        api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            return False, "OpenAI API Key가 필요합니다."
-        vectorstore = prepare_vectorstore(
-            openai_api_key=api_key,
-            pdf_paths=[st.session_state["pdf_path"]],
-            file_names=st.session_state["file_names"],
-            vector_dir=st.session_state["vector_dir"],
-        )
-        st.session_state["retriever"] = build_retriever(vectorstore, k=8)
-        st.session_state["index_ready"] = True
-    return True, None
+    if not st.session_state.api_key:
+        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
+        st.stop()
+
+    initialize_system()
+    display_chat_interface()
+    display_footer()
+
+
+def setup_sidebar():
+    st.sidebar.title("API 설정")
+    key = st.sidebar.text_input("OpenAI API 키", type="password", key="api_key_input")
+    if key:
+        st.session_state.api_key = key
+   
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("빠른 질문")
+    quick_qs = [
+        "여권을 발급 받고 싶어요",
+        "전입신고 방법을 알고 싶어요",
+        "인감증명서 발급 받고 싶어요",
+        "정보공개를 청구방법을 알고 싶어요",
+        "건축허가 신청 절차를 알고 싶어요"
+    ]
+    for q in quick_qs:
+        if st.sidebar.button(q, key=f"btn_{q}"):
+            if not st.session_state.processing and st.session_state.last_clicked_question != q:
+                st.session_state.selected_question = q
+                st.session_state.last_clicked_question = q
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🗑️ 대화 초기화"):
+        st.session_state.messages.clear()
+        st.session_state.question_count = 0
+        st.session_state.selected_question = None
+        st.session_state.last_clicked_question = None
+        st.experimental_rerun()
+
+
 
 def answer_question(question: str):
     api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY")
@@ -139,7 +162,7 @@ def render_chat_ui():
     st.markdown('<div class="card"><h3>📝 민원 질문</h3>', unsafe_allow_html=True)
     col1, col2 = st.columns([4,1])
     with col1:
-        q = st.text_input("질문을 입력하세요", label_visibility="collapsed")
+        q = st.text_input("궁금하신 사항항을 입력하세요", label_visibility="collapsed")
     with col2:
         ask = st.button("바로 확인")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -182,6 +205,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
