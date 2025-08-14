@@ -3,7 +3,8 @@ import streamlit as st
 import os
 import time
 import uuid
-from rag_logic import initialize_rag_chain, get_answer
+from rag_logic import initialize_rag_chain
+from langchain_openai import ChatOpenAI
 
 
 # ===== 1. 세션 상태 초기화 =====
@@ -158,15 +159,15 @@ def display_chat_interface():
     if st.session_state.selected_question and not st.session_state.processing:
         q = st.session_state.selected_question
         st.session_state.selected_question = None
-        process_question(q)
+        process_question_streaming(q)
 
     if not st.session_state.processing:
         if prompt := st.chat_input("✍️ 민원업무 질문을 입력하세요..."):
-            process_question(prompt)
+            process_question_streaming(prompt)
 
 
-# ===== 6. 질문 처리 =====
-def process_question(prompt):
+# ===== 6. 순차 출력 질문 처리 =====
+def process_question_streaming(prompt):
     if st.session_state.processing:
         return
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and \
@@ -181,23 +182,53 @@ def process_question(prompt):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("🤖 답변 생성 중..."):
-            try:
+        try:
+            with st.spinner("🤖 답변 생성 중..."):
                 start = time.time()
-                answer = get_answer(
-                    st.session_state.rag_chain,
-                    st.session_state.retriever,
-                    prompt,
-                    st.session_state.api_key
+
+                # retriever로 문서 검색
+                docs = st.session_state.retriever.get_relevant_documents(prompt)
+                context = "\n\n".join([f"[출처: {d.metadata.get('source_info','?')}] {d.page_content}" for d in docs])
+
+                # LLM 스트리밍 준비
+                llm = ChatOpenAI(
+                    model="gpt-4o-mini",
+                    temperature=0,
+                    openai_api_key=st.session_state.api_key,
+                    max_tokens=800,
+                    streaming=True
                 )
+
+                # 프롬프트 구성
+                final_prompt = f"""
+당신은 곡성군 민원 상담 전문가입니다. 곡성군 민원편람을 바탕으로 다음 질문에 답해주세요.
+출처와 관련 서식이 있다면 같이 안내하세요.
+
+문맥:
+{context}
+
+질문:
+{prompt}
+
+답변:
+"""
+
+                # 스트리밍 출력
+                response_container = st.empty()
+                full_text = ""
+                for chunk in llm.stream(final_prompt):
+                    token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    full_text += token
+                    response_container.markdown(full_text)
+
                 elapsed = round(time.time() - start, 2)
-                full_ans = f"{answer}\n\n_⏱ {elapsed}초_"
-                st.markdown(full_ans)
-                st.session_state.messages.append({"role": "assistant", "content": full_ans})
-            except Exception as e:
-                err = f"❌ 오류: {e}"
-                st.error(err)
-                st.session_state.messages.append({"role": "assistant", "content": err})
+                full_text += f"\n\n_⏱ {elapsed}초_"
+                st.session_state.messages.append({"role": "assistant", "content": full_text})
+
+        except Exception as e:
+            err = f"❌ 오류: {e}"
+            st.error(err)
+            st.session_state.messages.append({"role": "assistant", "content": err})
 
     st.session_state.processing = False
 
@@ -214,5 +245,3 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
-
-
