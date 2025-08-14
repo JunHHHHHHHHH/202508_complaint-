@@ -101,10 +101,10 @@ def setup_sidebar():
     st.sidebar.subheader("빠른 질문")
     quick_qs = [
         "여권을 발급 받고 싶어요",
-        "정보공개 청구 시 필요한 서류는?",
-        "인감증명서 발급에 필요한 서류는?",
-        "주민등록등본 발급에 필요한 서류는?",
-        "건축허가 신청 시 필요한 서류는?"
+        "전입신고 방법을 알고 싶어요요",
+        "인감증명서 발급 받고 싶어요",
+        "정보공개를 청구방법을 알고 싶어요",
+        "건축허가 신청 절차를 알고 싶어요"
     ]
     for q in quick_qs:
         if st.sidebar.button(q, key=f"btn_{q}"):
@@ -231,5 +231,6 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
 
 
