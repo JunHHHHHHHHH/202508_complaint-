@@ -128,7 +128,7 @@ def initialize_system():
 
     file_hash = str(hash(open(pdf_path, "rb").read()))
     if not st.session_state.rag_chain or st.session_state.file_hash != file_hash:
-        with st.spinner("📄 문서 분석 중..."):
+        with st.spinner("📄 민원편람(2025) 문서 분석 중..."):
             rag_chain, retriever, _ = initialize_rag_chain(
                 st.session_state.api_key, [pdf_path], ["곡성군 민원편람 2025"]
             )
@@ -245,3 +245,4 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
