@@ -1,8 +1,7 @@
 # app.py
-# app.py
 import streamlit as st
 import os
-
+import time
 from rag_logic import (
     prepare_vectorstore,
     build_retriever,
@@ -103,7 +102,7 @@ def init_session_state():
             st.session_state[k] = v
 
 # ---------------------------
-# 헤더(히어로 영역)
+# Hero 영역
 # ---------------------------
 def render_hero():
     st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -114,6 +113,35 @@ def render_hero():
       <div class="hero-desc">곡성군 민원편람 기반으로 답변 드립니다.</div>
     </div>
     """, unsafe_allow_html=True)
+
+# ---------------------------
+# 앱 메인
+# ---------------------------
+def main():
+    init_session_state()
+    st.set_page_config(
+        page_title="🏛️ 곡성군 AI 민원상담봇",
+        page_icon="🏛️",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # 헤더(Hero) 표시
+    render_hero()
+
+    # 사이드바
+    setup_sidebar()
+
+    if not st.session_state.api_key:
+        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
+        st.stop()
+
+    # 시스템 초기화
+    initialize_system()
+    # 채팅 인터페이스
+    display_chat_interface()
+    # 푸터
+    display_footer()
 
 # ---------------------------
 # 사이드바 설정
@@ -148,82 +176,121 @@ def setup_sidebar():
         st.experimental_rerun()
 
 # ---------------------------
-# 검색기 보장 함수
+# 시스템 초기화
 # ---------------------------
-def ensure_retriever():
-    if st.session_state["retriever"] is None:
-        try:
-            vs = prepare_vectorstore(st.session_state["vector_dir"], st.session_state["pdf_path"])
-            st.session_state["retriever"] = build_retriever(vs)
-            st.session_state["index_ready"] = True
-        except Exception as e:
-            return False, f"❌ 색인 생성 오류: {e}"
-    return True, None
+def initialize_system():
+    pdf_path = st.session_state.pdf_path
+    vector_dir = st.session_state.vector_dir
 
-# ---------------------------
-# 질문 처리 함수
-# ---------------------------
-def answer_question(question: str):
-    api_key = st.session_state.get("api_key") or os.getenv("OPENAI_API_KEY")
-    llm = build_streaming_llm(model="gpt-4o-mini", openai_api_key=api_key, max_tokens=800, temperature=0)
-    context, sources, annex = make_context_and_sources(st.session_state["retriever"], question)
-    prompt = build_final_prompt(context, question, annex)
-    resp = llm.invoke(prompt)
-    return resp.content, sources, annex
+    if not os.path.exists(pdf_path):
+        st.error(f"❌ '{pdf_path}' 파일이 없습니다.")
+        st.stop()
+
+    if not st.session_state.index_ready:
+        with st.spinner("📄 인덱스 준비 중..."):
+            vectorstore = prepare_vectorstore(
+                openai_api_key=st.session_state.api_key,
+                pdf_paths=[pdf_path],
+                file_names=st.session_state.file_names,
+                vector_dir=vector_dir
+            )
+            st.session_state.retriever = build_retriever(vectorstore, k=8)
+            st.session_state.index_ready = True
 
 # ---------------------------
 # 채팅 UI
 # ---------------------------
-def render_chat_ui():
-    st.markdown('<div class="card"><h3>📝 민원 질문</h3>', unsafe_allow_html=True)
-    col1, col2 = st.columns([4,1])
-    with col1:
-        q = st.text_input("궁금하신 사항을 입력하세요", label_visibility="collapsed")
-    with col2:
-        ask = st.button("바로 확인")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if ask and q.strip():
-        ok, err = ensure_retriever()
-        if not ok:
-            st.error(err)
-            return
-        with st.spinner("민원 정보를 정리하는 중..."):
-            answer, sources, annex = answer_question(q.strip())
-        st.markdown('<div class="card"><h3>🔎 결과</h3>', unsafe_allow_html=True)
-        st.markdown(f'<div class="msg-bot">{answer}</div>', unsafe_allow_html=True)
-        with st.expander("출처 보기"):
-            for s in sources:
-                st.markdown(f"- {s}")
-        if annex:
-            with st.expander("관련 별지/서식"):
-                for a in annex:
-                    st.markdown(f"- {a}")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# ---------------------------
-# 메인 실행부
-# ---------------------------
-def main():
-    init_session_state()
-    st.set_page_config(
-        page_title="🏛️ 곡성군 AI 민원상담봇",
-        page_icon="🏛️",
-        layout="wide",
-        initial_sidebar_state="collapsed"
+def display_chat_interface():
+    st.markdown(
+        f"<div class='card'>📄 문서: <b>{', '.join(st.session_state.file_names)}</b> | 💬 질문 수: {st.session_state.question_count}</div>",
+        unsafe_allow_html=True
     )
 
-    setup_sidebar()
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
 
-    if not st.session_state.api_key:
-        st.warning("🔑 사이드바에서 OpenAI API 키를 입력해주세요.")
-        st.stop()
+    if st.session_state.selected_question and not st.session_state.processing:
+        q = st.session_state.selected_question
+        st.session_state.selected_question = None
+        process_question_typing(q, st.session_state.typing_delay)
 
-    render_hero()
-    render_chat_ui()
-    st.markdown('<div class="foot">© Gokseong-gun · 민원편람 기반 안내</div>', unsafe_allow_html=True)
+    if not st.session_state.processing:
+        if prompt := st.chat_input("✍️ 궁금한 민원을 입력하세요..."):
+            process_question_typing(prompt, st.session_state.typing_delay)
 
+# ---------------------------
+# 질문 입력 처리(타자 효과)
+# ---------------------------
+def process_question_typing(prompt, delay=0.02):
+    if st.session_state.processing:
+        return
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and \
+       st.session_state.messages[-1]["content"] == prompt:
+        return
+
+    st.session_state.processing = True
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.question_count += 1
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        try:
+            container = st.empty()
+            with st.spinner("🤖 답변 생성 중..."):
+                context_text, _, annex_forms = make_context_and_sources(
+                    st.session_state.retriever, prompt
+                )
+
+                llm = build_streaming_llm(
+                    model="gpt-4o-mini",
+                    openai_api_key=st.session_state.api_key,
+                    max_tokens=800,
+                    temperature=0
+                )
+
+                final_prompt = build_final_prompt(
+                    context=context_text,
+                    question=prompt,
+                    annex_forms=annex_forms
+                )
+
+                full_text = ""
+                for chunk in llm.stream(final_prompt):
+                    token = getattr(chunk, "content", None)
+                    if not token:
+                        continue
+                    full_text += token
+                    container.markdown(full_text)
+                    time.sleep(delay)
+
+                st.session_state.messages.append({"role": "assistant", "content": full_text})
+
+        except Exception as e:
+            err_msg = f"❌ 오류: {e}"
+            st.error(err_msg)
+            st.session_state.messages.append({"role": "assistant", "content": err_msg})
+
+    st.session_state.processing = False
+
+# ---------------------------
+# 푸터
+# ---------------------------
+def display_footer():
+    st.markdown("""
+    <div class="foot">
+        🏛 곡성군청 | 📞 061-360-0000 | 🌐 www.gokseong.go.kr | 📍 전남 곡성군 곡성읍 군청로 15  
+        ⚠ 본 서비스는 AI 안내 서비스이며, 정확한 민원은 담당부서에 문의하세요.
+    </div>
+    """, unsafe_allow_html=True)
+
+# ---------------------------
+# 실행
+# ---------------------------
 if __name__ == "__main__":
     main()
+
 
 
