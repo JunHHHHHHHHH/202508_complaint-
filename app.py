@@ -11,11 +11,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# 사이드바 스타일링
+# 스타일링 (개선된 헤더 스타일 적용)
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(90deg, #1f77b4, #17becf);
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
         border-radius: 10px;
         color: white;
@@ -55,14 +55,28 @@ st.markdown("""
         border-color: #1f77b4;
         margin: 1rem 0;
     }
+    .metric-card {
+        background: white;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-left: 4px solid #667eea;
+    }
+    .insight-box {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #28a745;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 메인 헤더
+# 메인 헤더 (새로운 그라데이션 스타일 적용)
 st.markdown("""
 <div class="main-header">
     <h1>🏛️ 곡성군 민원편람 AI 상담봇</h1>
-    <p>민원업무 처리기간, 구비서류, 처리흐름을 쉽고 빠르게 안내해드립니다</p>
+    <p>AI 기반 민원업무 처리기간, 구비서류, 처리흐름을 쉽고 빠르게 안내해드립니다</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -80,7 +94,7 @@ if not openai_api_key:
     st.info("💡 API 키 발급: https://platform.openai.com/api-keys")
     st.stop()
 
-# 빠른 질문 템플릿 (수정됨 - 처리기간, 수수료, 민원접수 관련 삭제)
+# 빠른 질문 템플릿
 st.sidebar.title("🚀 빠른 질문")
 quick_questions = {
     "📄 구비서류 관련": [
@@ -136,23 +150,34 @@ else:
     st.info("💡 'minweonpyeonram-2025.pdf' 파일이 필요합니다.")
     st.stop()
 
-# 현재 분석 중인 문서 표시
-st.info(f"📖 현재 상담 가능 문서: **{', '.join(st.session_state.file_names)}**")
+# 현재 분석 중인 문서 표시 (카드 스타일 적용)
+st.markdown(f"""
+<div class="metric-card">
+    <h4>📖 현재 상담 가능 문서</h4>
+    <p><strong>{', '.join(st.session_state.file_names)}</strong></p>
+</div>
+""", unsafe_allow_html=True)
 
-# 사용 안내
+# 사용 안내 (인사이트 박스 스타일 적용)
 with st.expander("📖 사용 안내", expanded=False):
     st.markdown("""
-    ### 🎯 이용 방법
-    1. **사이드바 빠른 질문**: 자주 묻는 질문을 클릭하세요
-    2. **직접 질문**: 아래 채팅창에 궁금한 민원업무를 입력하세요
-    3. **구체적 질문**: "○○ 신청 방법", "○○ 필요서류", "○○ 처리기간" 등
-    
-    ### 💡 질문 예시
-    - "여권 발급은 어떻게 하나요?"
-    - "정보공개 청구 시 필요한 서류와 처리기간을 알려주세요"
-    - "주민등록 관련 업무는 무엇이 있나요?"
-    - "온라인으로 신청할 수 있는 민원이 있나요?"
-    """)
+    <div class="insight-box">
+        <h4>🎯 이용 방법</h4>
+        <ol>
+            <li><strong>사이드바 빠른 질문</strong>: 자주 묻는 질문을 클릭하세요</li>
+            <li><strong>직접 질문</strong>: 아래 채팅창에 궁금한 민원업무를 입력하세요</li>
+            <li><strong>구체적 질문</strong>: "○○ 신청 방법", "○○ 필요서류", "○○ 처리기간" 등</li>
+        </ol>
+        
+        <h4>💡 질문 예시</h4>
+        <ul>
+            <li>"여권 발급은 어떻게 하나요?"</li>
+            <li>"정보공개 청구 시 필요한 서류와 처리기간을 알려주세요"</li>
+            <li>"주민등록 관련 업무는 무엇이 있나요?"</li>
+            <li>"온라인으로 신청할 수 있는 민원이 있나요?"</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
 
 # 채팅 기록 초기화
 if "messages" not in st.session_state:
@@ -230,7 +255,7 @@ if prompt := st.chat_input("민원업무에 대해 궁금한 점을 입력하세
             st.error(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
-# 푸터 (수정됨 - 배경색과 테두리 추가로 가독성 향상)
+# 푸터
 st.markdown("""
 <div class="footer">
     <h4>🏛️ 곡성군청</h4>
@@ -240,5 +265,4 @@ st.markdown("""
     <small>⚠️ 본 서비스는 AI 기반 안내서비스로, 정확한 민원처리를 위해서는 담당부서에 직접 문의하시기 바랍니다.</small>
 </div>
 """, unsafe_allow_html=True)
-
 
