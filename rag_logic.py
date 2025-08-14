@@ -161,7 +161,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 아래 문맥을 토대로 질문에 대한 답변을 자세하게 작성하세요.
 
 지침:
-- 모든 제목은 본문보다 크고 bold 적용, 목록은 불릿/번호 사용하며 목록 별 한칸을 비우고 줄바꿈꿈
+- 모든 제목은 본문보다 크고 bold 적용, 목록은 불릿/번호 사용하며 목록 별 한칸을 띄움
 - 1) 민원업무명, 처리기간, 구비서류, 수수료
 - 2) 처리 절차 단계별 설명
 - 3) 신청방법(방문/온라인/전화), 접수처, 담당부서
@@ -177,6 +177,7 @@ def build_final_prompt(context: str, question: str, annex_forms: List[str]) -> s
 
 [답변]
 """
+
 
 
 
