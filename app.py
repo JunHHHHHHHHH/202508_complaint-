@@ -338,13 +338,13 @@ def setup_sidebar():
     st.sidebar.markdown("---")
     
     # 빠른 질문 템플릿
-    st.sidebar.title("🚀 빠른 질문")
+    st.sidebar.title("🚀 주요 민원 질문")
     
     quick_questions = [
-        "여권 재발급 시 필요한 서류는?",
-        "정보공개 청구 시 필요한 서류는?",
-        "인감증명서 발급에 필요한 서류는?",
-        "주민등록등본 발급에 필요한 서류는?",
+        "여권 발급 절차는?",
+        "주민등록등본 발급 절차는?",
+        "인감증명서 발급 절차는?",
+        "정보공개 청구 방법은?",
         "건축허가 신청 시 필요한 서류는?"
     ]
     
@@ -429,26 +429,24 @@ def display_chat_interface():
     </div>
     """, unsafe_allow_html=True)
 
+    
     # 사용 안내
     with st.expander("📖 사용 안내", expanded=False):
-        st.markdown("""
-        <div class="insight-box">
-            <h4>🎯 이용 방법</h4>
-            <ol>
-                <li><strong>사이드바 빠른 질문</strong>: 자주 묻는 질문을 클릭하세요</li>
-                <li><strong>직접 질문</strong>: 아래 채팅창에 궁금한 민원업무를 입력하세요</li>
-                <li><strong>구체적 질문</strong>: "○○ 신청 방법", "○○ 필요서류", "○○ 처리기간" 등</li>
-            </ol>
-            
-            <h4>💡 질문 예시</h4>
-            <ul>
-                <li>"여권 발급은 어떻게 하나요?"</li>
-                <li>"정보공개 청구 시 필요한 서류와 처리기간을 알려주세요"</li>
-                <li>"주민등록 관련 업무는 무엇이 있나요?"</li>
-                <li>"온라인으로 신청할 수 있는 민원이 있나요?"</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("#### 🎯 이용 방법")
+    st.markdown("""
+    1. **사이드바 빠른 질문**: 자주 묻는 질문을 클릭하세요
+    2. **직접 질문**: 아래 채팅창에 궁금한 민원업무를 입력하세요
+    3. **구체적 질문**: "○○ 신청 방법", "○○ 필요서류", "○○ 처리기간" 등
+    """)
+    
+    st.markdown("#### 💡 질문 예시")
+    st.markdown("""
+    - "여권 발급은 어떻게 하나요?"
+    - "정보공개 청구 시 필요한 서류와 처리기간을 알려주세요"
+    - "주민등록 관련 업무는 무엇이 있나요?"
+    - "구술대필로 신청할 수 있는 민원이 있나요?"
+    """)
+        
 
     # 채팅 기록 초기화
     if "messages" not in st.session_state:
@@ -629,3 +627,4 @@ def display_footer():
 
 if __name__ == "__main__":
     main()
+
