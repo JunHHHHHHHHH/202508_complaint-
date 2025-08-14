@@ -121,7 +121,7 @@ def render_hero():
 def main():
     init_session_state()
     st.set_page_config(
-        page_title="🏛️ 곡성군 AI 민원상담봇",
+        page_title="곡성군 AI 민원상담봇",
         page_icon="🏛️",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -301,5 +301,6 @@ def display_footer():
 # ---------------------------
 if __name__ == "__main__":
     main()
+
 
 
