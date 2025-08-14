@@ -87,10 +87,10 @@ def initialize_rag_chain(openai_api_key, pdf_paths, file_names=None):
         raise ValueError("문서 내용이 너무 짧습니다. 스캔된 이미지 PDF일 가능성이 있습니다.")
 
     try:
-        # 2. 문서 분할 - 민원편람에 최적화된 청크 크기
+        # 2. 문서 분할 - 토큰 제한을 고려한 최적화된 크기 (수정됨)
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,  # 민원업무 설명을 위한 적절한 크기
-            chunk_overlap=100,  # 충분한 오버랩으로 연관성 유지
+            chunk_size=500,  # 800 -> 500으로 축소
+            chunk_overlap=50,  # 100 -> 50으로 축소
             separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
             length_function=len
         )
@@ -122,10 +122,10 @@ def initialize_rag_chain(openai_api_key, pdf_paths, file_names=None):
         vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
         print("✅ [3/5] FAISS 벡터 DB 생성 완료")
 
-        # 4. 검색기 생성 - 민원업무 특성에 맞는 검색 설정
+        # 4. 검색기 생성 - 토큰 제한을 고려한 검색 설정 (수정됨)
         retriever = vectorstore.as_retriever(
             search_type="similarity",
-            search_kwargs={"k": 12}  # 관련 정보를 충분히 검색
+            search_kwargs={"k": 8}  # 12 -> 8로 축소
         )
         print("✅ [4/5] 검색기 생성 완료")
 
@@ -155,7 +155,7 @@ def initialize_rag_chain(openai_api_key, pdf_paths, file_names=None):
             model="gpt-4o-mini",
             temperature=0,
             openai_api_key=openai_api_key,
-            max_tokens=1500,  # 민원 상담을 위한 충분한 길이
+            max_tokens=1000,  # 1500 -> 1000으로 축소
             timeout=60
         )
 
@@ -212,7 +212,7 @@ def get_answer(chain, retriever, question, openai_api_key):
 
         print(f"유효한 문서 개수: {len(valid_docs)}")
 
-        # 상위 문서들로 컨텍스트 생성
+        # 상위 문서들로 컨텍스트 생성 (수정됨 - 토큰 수 축소)
         def format_docs_for_context(docs):
             formatted = []
             for doc in docs:
@@ -221,7 +221,7 @@ def get_answer(chain, retriever, question, openai_api_key):
                 formatted.append(f"[출처: {source}]\n{content}")
             return "\n\n".join(formatted)
 
-        context = format_docs_for_context(valid_docs[:10])  # 상위 10개 문서 사용
+        context = format_docs_for_context(valid_docs[:6])  # 10 -> 6으로 축소
 
         # 민원 상담용 프롬프트 구성 (서식 안내 기능 추가)
         prompt_text = f"""당신은 곡성군 민원 상담 전문가입니다. 곡성군 민원편람을 바탕으로 정확하고 친절하게 답변해주세요.
@@ -248,7 +248,7 @@ def get_answer(chain, retriever, question, openai_api_key):
             model="gpt-4o-mini",
             temperature=0,
             openai_api_key=openai_api_key,
-            max_tokens=1500,
+            max_tokens=1000,  # 1500 -> 1000으로 축소
             timeout=60
         )
 
@@ -258,3 +258,5 @@ def get_answer(chain, retriever, question, openai_api_key):
     except Exception as e:
         print(f"상세 오류 정보: {str(e)}")
         return f"답변 생성 중 오류가 발생했습니다: {str(e)}"
+
+
