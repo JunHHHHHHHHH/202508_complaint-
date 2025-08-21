@@ -79,9 +79,11 @@ Streamlit을 사용하여 웹 애플리케이션으로 구현되었습니다.
     웹 브라우저를 열고 터미널에 표시된 URL(기본: `http://localhost:8501`)로 접속하여 챗봇 서비스를 이용합니다.
 
 ## 📂 프로젝트 구조
+```
 .
 ├── app.py                  # Streamlit 웹 애플리케이션 실행 파일
 ├── rag_logic.py            # RAG 파이프라인 핵심 로직 (데이터 처리, 검색, 프롬프트 구성 등)
 ├── requirements.txt        # 프로젝트 실행에 필요한 파이썬 라이브러리 목록
 ├── minweonpyeonram-2025.pdf  # (사용자 준비) AI 챗봇의 지식 기반이 되는 민원편람 원문
 └── faiss_minweonpyeonram_2025/ # (자동 생성) PDF를 벡터화하여 저장하는 디렉터리
+```
